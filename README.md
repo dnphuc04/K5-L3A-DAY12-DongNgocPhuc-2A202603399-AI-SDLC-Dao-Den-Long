@@ -1,5 +1,34 @@
 # Day 12 — AI SDLC: Đảo Đèn Lồng
 
+## Chơi Đêm 1 · Đảo Bến
+
+Cần Node.js 20 trở lên. Chạy `npm start`, rồi mở [localhost:8080](http://localhost:8080) bằng trình duyệt. Dùng `npm.cmd start` nếu PowerShell chặn script npm.
+
+| Phím | Điều khiển |
+| --- | --- |
+| W A S D hoặc ↑ ↓ | Di chuyển theo hướng camera |
+| ← → | Xoay camera |
+| Space | Nhảy |
+| E | Nạp đom đóm vào đèn gần nhất |
+| Q | Tỏa sáng, tốn 2 đom đóm |
+
+Mây mang tối đa 8 đom đóm. Mỗi đèn cần 4, đèn đã sáng bảo vệ Mây trong bán kính 3 m. Thắp đủ 5 đèn để thắng trước khi hết lửa hoặc hết 3 phút. Sau khi trận kết thúc, bấm **Chơi lại** để bắt đầu lại.
+
+Điểm được cộng theo số đom đóm nhặt được (10), đèn thắp (100) và Bóng Mực làm choáng (20). Khi thắng, cộng thêm 2 điểm mỗi giây nguyên còn lại và 50 điểm mỗi lửa còn lại.
+
+## Kiểm tra Phase 1
+
+```sh
+npm test
+node headless.mjs --seed 20 --night 1 --ticks 120 --snapshot-every 60 --out run.local.jsonl
+```
+
+[Contract v1.0](game.contract.json) khai báo số liệu dùng chung cho game và CLI. Rìa đảo chặn di chuyển nên không có phạt rơi. Xem [giả định, bằng chứng và nhật ký AI](docs/phase-1/README.md).
+
+### Sáng tạo của tôi
+
+Mô hình low-poly được tạo bằng hình học trong mã. Đèn đã thắp nhuộm màu mặt đất quanh đèn và vẽ vòng vùng an toàn. Các hiệu ứng này chỉ nằm ở phần hiển thị. Bộ test headless kiểm tra độc lập logic chiếu sáng và vùng an toàn.
+
 > **Cá nhân** (1 người / 1 MSSV) · Áp dụng SDLC cùng AI để xây một **game 3D** qua **4 phase**, từ yêu cầu ban đầu tới bản phát hành.
 > **Lab board + trợ giảng:** **[Đảo Đèn Lồng Lab](https://claude.ai/artifact/Q1RYyv1dxjUczzCbd2ZnoW)**
 

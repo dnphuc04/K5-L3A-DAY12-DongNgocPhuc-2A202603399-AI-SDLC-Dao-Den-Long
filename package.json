@@ -1,0 +1,6 @@
+{
+  "name": "dao-den-long",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node serve.mjs", "test": "node --test" }
+}

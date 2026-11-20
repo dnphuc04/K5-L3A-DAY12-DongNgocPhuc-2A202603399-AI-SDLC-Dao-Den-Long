@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Đảo Đèn Lồng</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <canvas id="world" aria-label="Đảo Bến"></canvas>
+  <header>
+    <p>ĐÊM 1 · ĐẢO BẾN</p>
+    <h1>Đảo Đèn Lồng</h1>
+  </header>
+  <aside class="hud" aria-label="Trạng thái">
+    <span>Lửa <strong id="flames">—</strong></span>
+    <span>Ánh sáng <strong id="light">—</strong></span>
+    <span>Đèn <strong id="lanterns">—</strong></span>
+    <span>Thời gian <strong id="clock">—</strong></span>
+    <span>Điểm <strong id="score">—</strong></span>
+  </aside>
+  <div id="hint" role="status"></div>
+  <footer>WASD / ↑↓ · Di chuyển　 ← → · Xoay　 Space · Nhảy　 E · Nạp đèn　 Q · Tỏa sáng</footer>
+  <section id="overlay">
+    <div>
+      <h2 id="title">Thắp sáng Đảo Bến</h2>
+      <p id="message">Gom đom đóm, thắp cả năm đèn lồng và dùng ánh sáng để xua Bóng Mực.</p>
+      <button id="start">Bắt đầu</button>
+    </div>
+  </section>
+  <script type="module" src="./view.mjs"></script>
+</body>
+</html>

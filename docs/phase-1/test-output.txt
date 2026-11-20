@@ -1,0 +1,21 @@
+
+> test
+> node --test
+
+Γ£ö tick zero, sparse inputs, camera rotation, diagonal normalization and jump (76.1272ms)
+Γ£ö pickup radius and carry limit (68.564ms)
+Γ£ö partial deposit, rising edge, final lantern and score (74.0511ms)
+Γ£ö pulse costs light, pushes within radius and observes cooldown and stun timing (66.6528ms)
+Γ£ö a lit lantern protects the player and keeps chasing shades outside its radius (68.233ms)
+Γ£ö collision, invulnerability and defeat from zero flames (68.9814ms)
+Γ£ö dawn terminates at the exact tick and emits end as the final row (76.8032ms)
+Γ£ö same seed and inputs produce byte-identical output (272.0512ms)
+Γ£ö malformed scenario and duplicate ticks exit 2 with stderr (155.1279ms)
+Γä╣ tests 9
+Γä╣ suites 0
+Γä╣ pass 9
+Γä╣ fail 0
+Γä╣ cancelled 0
+Γä╣ skipped 0
+Γä╣ todo 0
+Γä╣ duration_ms 1026.519

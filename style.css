@@ -1,0 +1,21 @@
+* { box-sizing: border-box }
+body { margin: 0; color: #ffedcf; background: #100e23; font: 16px system-ui, sans-serif }
+canvas { display: block; width: 100%; height: 100dvh }
+header, .hud, footer, #hint { position: absolute; z-index: 1 }
+header { top: 22px; left: 30px }
+header p { color: #ffbc78; letter-spacing: .17em; margin: 0 }
+h1, h2 { font-family: Georgia, serif; margin: 5px 0; font-weight: 500 }
+h1 { font-size: clamp(30px, 5vw, 55px) }
+.hud { top: 28px; right: 28px; display: flex; flex-wrap: wrap; gap: 9px }
+.hud span, footer, #hint:not(:empty) { background: #161225df; border: 1px solid #ffd29a4d; border-radius: 10px; padding: 9px 12px }
+strong { color: #ffc172; margin-left: 3px }
+footer, #hint { left: 50%; transform: translateX(-50%); text-align: center; width: max-content; max-width: 90vw }
+footer { bottom: 20px }
+#hint { bottom: 76px }
+#overlay { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; background: #0a081655 }
+#overlay[hidden] { display: none }
+#overlay div { margin: 20px; max-width: 460px; text-align: center; padding: 32px; border-radius: 20px; border: 1px solid #ffc1727a; background: #21172fee }
+h2 { font-size: 38px }
+button { padding: 12px 25px; border: 0; border-radius: 8px; background: #ffc172; color: #291321; font: inherit; font-weight: 700; cursor: pointer }
+button:focus-visible { outline: 3px solid white; outline-offset: 3px }
+@media (max-width: 850px) { .hud { top: 100px; left: 24px; right: 20px } }
