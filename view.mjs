@@ -40,6 +40,19 @@ let game, active = false, yaw = 0, pulseTick = -100
 let faces = [], project, cameraPoint, screenPoint
 let backdrop, scenery, sceneryMap
 const tau = Math.PI * 2
+const materials = new Map()
+const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+const bursts = []
+let lightSources = [], mist
+let groundDepth
+
+const effects = {
+  mote_picked: { rgb: '255,226,124', count: 9, life: 28 },
+  lantern_lit: { rgb: '255,184,79', count: 24, life: 58 },
+  pulse: { rgb: '255,236,159', count: 20, life: 32 },
+  dash: { rgb: '145,219,255', count: 12, life: 24 },
+  player_hit: { rgb: '212,134,255', count: 12, life: 28 }
+}
 
 function input() {
   return {
@@ -54,6 +67,7 @@ function reset() {
   game = createGame(contract, 1528 + night - 1, {}, night)
   yaw = 0
   pulseTick = -100
+  bursts.length = 0
   lastSecond = -1
   windWarning = 0
   nextNote = 0
@@ -140,7 +154,33 @@ canvas.addEventListener('mousemove', event => {
   if (active && event.buttons & 1) yaw += event.movementX * preferences.sensitivity
 })
 
-function polygon(vertices, color, line = false, width = 2) {
+function surfaceColor(vertices, color, depth) {
+  if (!materials.has(color)) {
+    const hex = Number.parseInt(color.slice(1), 16)
+    materials.set(color, [hex >> 16, (hex >> 8) & 255, hex & 255])
+  }
+  const [a, b, c] = vertices
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2]
+  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2]
+  const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+  const normal = Math.hypot(nx, ny, nz) || 1
+  const shade = .73 + (.26 * Math.abs(ny) + .16 * (nx * .6 + nz * .8)) / normal
+  const x = (a[0] + c[0]) / 2, y = (a[1] + c[1]) / 2, z = (a[2] + c[2]) / 2
+  let warm = 0
+  for (const light of lightSources) {
+    const dx = x - light.x, dy = y - light.y, dz = z - light.z
+    const reach = Math.max(0, 1 - (dx * dx + dy * dy * 2 + dz * dz) / light.rangeSquared)
+    warm += reach * reach * light.power
+  }
+  warm = Math.min(warm, 1)
+  const fog = Math.min(.64, Math.max(0, (depth - 14) / 76))
+  const [r, g, blue] = materials.get(color)
+  const channel = (base, moon, amber, haze) =>
+    Math.round(Math.min(255, base * shade + moon + amber * warm) * (1 - fog) + haze * fog)
+  return `rgb(${channel(r, 1, 116, mist[0])},${channel(g, 5, 73, mist[1])},${channel(blue, 12, 24, mist[2])})`
+}
+
+function polygon(vertices, color, line = false, width = 2, emissive = false, floor = false) {
   const camera = vertices.map(cameraPoint)
   const near = 0.45
   const clipped = []
@@ -154,25 +194,36 @@ function polygon(vertices, color, line = false, width = 2) {
   }
   if (clipped.length < 3) return
   const depth = clipped.reduce((sum, point) => sum + point[2], 0) / clipped.length
-  faces.push({ points: clipped.map(screenPoint), color, line, width, depth })
+  const visible = clipped.map(screenPoint)
+  if (visible.every(p => p[0] < 0) || visible.every(p => p[0] > canvas.clientWidth) ||
+      visible.every(p => p[1] < 0) || visible.every(p => p[1] > canvas.clientHeight)) return
+  const paintColor = line || emissive || color.length !== 7 ? color : surfaceColor(vertices, color, depth)
+  // A broad floor face can have a nearer centroid than Mây even though it lies beneath her.
+  const drawDepth = floor && vertices.every(point => point[1] <= game.player.pos[1] + .03)
+    ? Math.max(depth, groundDepth + .01) : depth
+  faces.push({ points: visible, color: paintColor, line, width, depth: drawDepth })
+}
+
+function floorPolygon(vertices, color) {
+  polygon(vertices, color, false, 2, false, true)
 }
 function ring(x, y, z, r, n) {
   return Array.from({ length: n }, (_, i) => [x + Math.cos(i * tau / n) * r, y, z + Math.sin(i * tau / n) * r])
 }
 
-function frustum(x, y, z, lower, upper, height, colors, sides = 8) {
+function frustum(x, y, z, lower, upper, height, colors, sides = 8, emissive = false) {
   const a = ring(x, y, z, lower, sides)
   const b = ring(x, y + height, z, upper, sides)
   for (let i = 0; i < sides; i++) {
     const next = (i + 1) % sides
-    polygon([a[i], a[next], b[next], b[i]], colors[i % colors.length])
+    polygon([a[i], a[next], b[next], b[i]], colors[i % colors.length], false, 2, emissive)
   }
-  if (upper > 0) polygon(b, colors[0])
+  if (upper > 0) polygon(b, colors[0], false, 2, emissive)
 }
 
-function orb(x, y, z, r, colors) {
-  frustum(x, y - r, z, 0, r, r, colors, 5)
-  frustum(x, y, z, r, 0, r, colors, 5)
+function orb(x, y, z, r, colors, emissive = false) {
+  frustum(x, y - r, z, 0, r, r, colors, 5, emissive)
+  frustum(x, y, z, r, 0, r, colors, 5, emissive)
 }
 
 function noise(i) {
@@ -180,15 +231,22 @@ function noise(i) {
   return n - Math.floor(n)
 }
 
+const nightSkies = [
+  ['#080F24', '#273663', '#214656', [37, 65, 84]],
+  ['#0B1129', '#34365E', '#2C405C', [44, 61, 92]],
+  ['#100D24', '#493758', '#333857', [51, 56, 87]]
+]
+
 function makeBackdrop(width, height) {
   const image = document.createElement('canvas')
   image.width = width
   image.height = height
   const g = image.getContext('2d')
   const sky = g.createLinearGradient(0, 0, 0, height)
-  sky.addColorStop(0, '#0E1430')
-  sky.addColorStop(.56, '#1B2350')
-  sky.addColorStop(1, '#12384A')
+  const [zenith, horizon, valley] = nightSkies[night - 1]
+  sky.addColorStop(0, zenith)
+  sky.addColorStop(.56, horizon)
+  sky.addColorStop(1, valley)
   g.fillStyle = sky
   g.fillRect(0, 0, width, height)
   const moonX = width * .78, moonY = height * .2
@@ -230,7 +288,7 @@ function makeBackdrop(width, height) {
       g.lineTo(x, height * (.45 + layer * .081 + wave))
     }
     g.lineTo(width, height)
-    g.fillStyle = ['#28385B', '#1E3B55', '#12384A'][layer]
+    g.fillStyle = ['#28385B', '#24364D', valley][layer]
     g.fill()
   }
   for (let i = 0; i < 32; i++) {
@@ -246,6 +304,12 @@ function makeBackdrop(width, height) {
     g.fillRect(-1, -1, 2, 2)
     g.restore()
   }
+  const vignette = g.createRadialGradient(width * .5, height * .47, height * .25,
+    width * .5, height * .47, Math.max(width, height) * .67)
+  vignette.addColorStop(0, '#080E2200')
+  vignette.addColorStop(1, '#080E2270')
+  g.fillStyle = vignette
+  g.fillRect(0, 0, width, height)
   return image
 }
 
@@ -261,7 +325,7 @@ function groundDisk(cx, cz, y, radius, color, start = 0, arc = tau, inner = 0) {
       const far = near + (radius - inner) / bands
       const corners = [point(near, left), point(far, left), point(far, right), point(near, right)]
       const palette = color === '#C9B48A' ? sands : greens
-      polygon(corners, palette[Math.floor(noise(i * bands + strip) * palette.length)])
+      floorPolygon(corners, palette[Math.floor(noise(i * bands + strip) * palette.length)])
     }
     const a = point(radius, left), b = point(radius, right)
     const drop = y ? 3 : 6 + noise(i + 7) * 4
@@ -279,7 +343,8 @@ function island() {
   if (map.bridge) {
     const [left, right, near, far] = map.bridge
     for (let x = left; x < right; x++) {
-      polygon([[x, 0, near], [x + 0.96, 0, near], [x + 0.96, 0, far], [x, 0, far]], '#6B4A2F')
+      const end = Math.min(x + .96, right)
+      floorPolygon([[x, 0, near], [end, 0, near], [end, 0, far], [x, 0, far]], '#6B4A2F')
     }
   }
   if (map.tier) groundDisk(0, 0, map.tier.y, map.tier.outer, '#2F5D50', 0, Math.PI, map.tier.inner)
@@ -287,8 +352,14 @@ function island() {
   for (const ramp of game.ramps) {
     const point = (r, edge, y) => [r * ramp.axis[0] + edge * ramp.edge[0], y,
       r * ramp.axis[1] + edge * ramp.edge[1]]
-    polygon([point(ramp.inner, -ramp.half, ramp.y), point(ramp.inner, ramp.half, ramp.y),
-      point(ramp.outer, ramp.half, 0), point(ramp.outer, -ramp.half, 0)], '#C9B48A')
+    const segments = Math.ceil((ramp.outer - ramp.inner) / .75)
+    const edgeAt = (segment, side) => {
+      const t = segment / segments
+      return point(ramp.inner + (ramp.outer - ramp.inner) * t, side * ramp.half, ramp.y * (1 - t))
+    }
+    for (let i = 0; i < segments; i++) {
+      floorPolygon([edgeAt(i, -1), edgeAt(i, 1), edgeAt(i + 1, 1), edgeAt(i + 1, -1)], '#C9B48A')
+    }
   }
   for (const pad of map.pads ?? []) {
     const [x, y, z] = pad.pos
@@ -300,6 +371,12 @@ function island() {
     frustum(0, y + .55, 0, r * .89, r * .84, h * .63, ['#6B4A2F', '#705038'], 8)
     frustum(0, y + h * .7, 0, r * .98, r * 1.2, .28, ['#C9B48A', '#BDA880'], 8)
     frustum(0, y + h * .74, 0, r * 1.2, .12, h * .26, ['#263D51', '#304B60'], 8)
+    for (let side = 0; side < 8; side++) {
+      const angle = side * tau / 8 + tau / 16
+      const windowX = Math.cos(angle) * r * .84
+      const windowZ = Math.sin(angle) * r * .84
+      frustum(windowX, y + h * .53, windowZ, .105, .075, h * .12, ['#DEA45E'], 4, true)
+    }
     orb(0, y + h, 0, .19, ['#F2C14E', '#FFE9B0'])
   }
   if (sceneryMap !== map) {
@@ -325,26 +402,86 @@ function island() {
   }
 }
 
-function lightSprite(pos, radius, rgb, intensity) {
+function lightSprite(pos, radius, rgb, intensity, additive = true) {
   const point = project(pos)
   if (!point) return
   const [x, y, depth] = point
   const r = Math.min(220, radius * canvas.clientHeight / depth)
   if (x < -r || y < -r || x > canvas.clientWidth + r || y > canvas.clientHeight + r) return
-  faces.push({ depth, light: { x, y, r, rgb, intensity } })
+  if (r < .45) return
+  faces.push({ depth, light: { x, y, r, rgb, intensity, additive } })
 }
 
-function paint(sort = true) {
-  if (sort) faces.sort((a, b) => b.depth - a.depth)
-  for (const { points, color, line, width, light } of faces) {
+function addBurst(name, data) {
+  const effect = effects[name]
+  if (!effect || reducedMotion?.matches) return
+  const lamp = name === 'lantern_lit' && game.lanterns.find(item => item.id === data.lantern_id)
+  const [x, y, z] = lamp ? lamp.pos : game.player.pos
+  bursts.push({ ...effect, x, y: y + (lamp ? 2.5 : .75), z, tick: game.sim, seed: game.sim + bursts.length * 73 })
+  if (bursts.length > 20) bursts.shift()
+}
+
+function drawBursts() {
+  for (let i = bursts.length - 1; i >= 0; i--) {
+    const burst = bursts[i]
+    const age = (game.sim - burst.tick) / burst.life
+    if (age >= 1) {
+      bursts.splice(i, 1)
+      continue
+    }
+    for (let p = 0; p < burst.count; p++) {
+      const seed = burst.seed + p * 13
+      const angle = noise(seed) * tau
+      const distance = age * (1 + 2 * noise(seed + 1))
+      const lift = age * (2 + noise(seed + 2)) - 1.65 * age * age
+      lightSprite([burst.x + Math.cos(angle) * distance, burst.y + lift,
+        burst.z + Math.sin(angle) * distance], .048 + .047 * noise(seed + 3), burst.rgb, .9 * (1 - age))
+    }
+  }
+}
+
+function drawLanternStatus({ x, y, size, deposited, lit }) {
+  const cost = tuning.lantern_cost
+  const text = lit ? `${deposited}/${cost} · Đầy` : `${deposited}/${cost}`
+  ctx.font = `700 ${size}px system-ui, sans-serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  const width = Math.max(size * 3, ctx.measureText(text).width + 16)
+  const left = x - width / 2
+  const height = size + 15
+  ctx.beginPath()
+  ctx.roundRect(left, y - height, width, height, 6)
+  ctx.fillStyle = lit ? '#35230D' : '#10182A'
+  ctx.fill()
+  ctx.strokeStyle = lit ? '#FFD071' : '#8095AE'
+  ctx.lineWidth = 1
+  ctx.stroke()
+  ctx.fillStyle = lit ? '#FFE19A' : '#F2F5FC'
+  ctx.fillText(text, x, y - height + size / 2 + 4)
+  const barWidth = width - 16
+  ctx.fillStyle = '#526079'
+  ctx.fillRect(left + 8, y - 7, barWidth, 3)
+  ctx.fillStyle = '#FFC557'
+  ctx.fillRect(left + 8, y - 7, barWidth * deposited / cost, 3)
+}
+
+function paint() {
+  faces.sort((a, b) => b.depth - a.depth)
+  for (const { points, color, line, width, light, status } of faces) {
+    if (status) {
+      drawLanternStatus(status)
+      continue
+    }
     if (light) {
-      const { x, y, r, rgb, intensity } = light
+      const { x, y, r, rgb, intensity, additive } = light
       const halo = ctx.createRadialGradient(x, y, 0, x, y, r)
       halo.addColorStop(0, 'rgba(' + rgb + ',' + intensity + ')')
       halo.addColorStop(.3, 'rgba(' + rgb + ',' + intensity * .35 + ')')
       halo.addColorStop(1, 'rgba(' + rgb + ',0)')
+      if (additive) ctx.globalCompositeOperation = 'screen'
       ctx.fillStyle = halo
       ctx.fillRect(x - r, y - r, r * 2, r * 2)
+      if (additive) ctx.globalCompositeOperation = 'source-over'
       continue
     }
     ctx.beginPath()
@@ -373,10 +510,13 @@ function draw() {
   }
   ctx.setTransform(scale, 0, 0, scale, 0, 0)
   if (!width || !height) return
-  if (!backdrop || backdrop.width !== width || backdrop.height !== height) backdrop = makeBackdrop(width, height)
-  ctx.drawImage(backdrop, 0, 0)
+  if (!backdrop || backdrop.night !== night || backdrop.image.width !== width || backdrop.image.height !== height) {
+    backdrop = { night, image: makeBackdrop(width, height) }
+  }
+  ctx.drawImage(backdrop.image, 0, 0)
   const player = game.player.pos
-  const angle = (yaw + (screen === 'menu' ? performance.now() * .008 : 0)) * Math.PI / 180
+  const menuOrbit = screen === 'menu' && !reducedMotion?.matches ? performance.now() * .008 : 0
+  const angle = (yaw + menuOrbit) * Math.PI / 180
   const sin = Math.sin(angle), cos = Math.cos(angle)
   const pitch = .35
   const up = Math.cos(pitch), down = Math.sin(pitch)
@@ -392,23 +532,27 @@ function draw() {
     const p = cameraPoint(point)
     return p[2] >= .45 ? screenPoint(p) : null
   }
+  const [x, y, z] = player
+  groundDepth = cameraPoint([x, y, z])[2] + .7
+  const lx = x + cos * .54, lz = z - sin * .54
+  mist = nightSkies[night - 1][3]
+  lightSources = [{ x: lx, y: y + .55, z: lz, rangeSquared: 8, power: .47 }]
+  for (const lamp of game.lanterns) {
+    if (!lamp.lit) continue
+    const [x, y, z] = lamp.pos
+    lightSources.push({ x, y: y + .75, z, rangeSquared: 36,
+      power: reducedMotion?.matches ? .9 : .9 + Math.sin(game.sim * .14 + x) * .08 })
+  }
   island()
   const ambient = tuning.ambient_base + tuning.ambient_progress *
     game.lanterns.filter(lamp => lamp.lit).length / game.lanterns.length
   const glow = ctx.createRadialGradient(width / 2, height * .64, 0, width / 2, height * .64, Math.max(width, height))
   glow.addColorStop(0, 'rgba(255,179,71,' + (ambient * .1) + ')')
   glow.addColorStop(1, 'rgba(255,179,71,0)')
-  if (windWarning > game.sim || game.wind.active) {
-    for (let i = 0; i < 24; i++) {
-      const x = (i * 97 + game.sim * 6) % width, y = (i * 59 + game.sim) % height
-      ctx.fillStyle = '#F2C14E'
-      ctx.fillRect(x, y, 5, 2)
-    }
-  }
   for (const { pos: [x, y, z] } of game.motes) {
     const hover = y + .65 + Math.sin(game.sim / 19 + x) * .19
     lightSprite([x, hover, z], .68, '255,229,138', .56)
-    orb(x, hover, z, .13, ['#FFF6C2', '#FFE58A'])
+    orb(x, hover, z, .13, ['#FFF6C2', '#FFE58A'], true)
     const spark = game.sim / 26 + x
     orb(x + Math.cos(spark) * .31, hover + .1, z + Math.sin(spark) * .31, .035, ['#FFE58A'])
   }
@@ -430,8 +574,9 @@ function draw() {
     frustum(x, y + .18, z, .58, .4, .29, ['#4F656A', '#586C70'], 6)
     frustum(x, y + .47, z, .18, .13, 1.64, wood, 6)
     frustum(x, y + 1.98, z, .32, .58, .18, wood, 8)
-    frustum(x, y + 2.16, z, .48, .56, .62,
-      lantern.lit ? ['#FFB347', '#FFE9B0', '#FFB347'] : ['#5B5F6E', '#626777'], 8)
+    const panel = lantern.lit ? ['#FFB347', '#FFE9B0', '#FFD07B'] :
+      lantern.deposited > 0 ? ['#AE7537', '#D09648'] : ['#5B5F6E', '#626777']
+    frustum(x, y + 2.16, z, .48, .56, .62, panel, 8, lantern.lit)
     frustum(x, y + 2.77, z, .69, .62, .09, [gold], 8)
     frustum(x, y + 2.86, z, .76, .12, .46, ['#263C50', '#304A61'], 8)
     orb(x, y + 3.35, z, .13, [gold])
@@ -446,22 +591,31 @@ function draw() {
     } else {
       lightSprite([x, y + 2.55, z], .9, '185,208,255', .17)
     }
+    const marker = project([x, y + 3.58, z])
+    if (marker && marker[0] >= 0 && marker[0] <= width && marker[1] >= 0 && marker[1] <= height) {
+      const [x, y, depth] = marker
+      const size = Math.max(12, Math.min(17, 12 + 68 / depth))
+      faces.push({ depth, status: { x, y, size, deposited: lantern.deposited, lit: lantern.lit } })
+    }
   }
   for (const shade of game.shades) {
     const [x, y, z] = shade.pos
     const height = y + .58 + Math.sin(game.sim / 13 + x) * .13
-    lightSprite([x, height, z], 1.28, '122,60,255', .31)
+    lightSprite([x, height, z], 1.28, '122,60,255', .22, false)
     frustum(x, height - .55, z, .15, .54, .53, ['#120A1A', '#372459'], 7)
     orb(x, height, z, .73, shade.state === 'stunned' ? ['#3A3450'] : ['#120A1A', '#7A3CFF'])
     for (const side of [-1, 1]) {
       orb(x - sin * .55 + cos * side * .23, height + .1, z - cos * .55 - sin * side * .23,
-        .09, ['#e8a8ff', '#c69afa'])
+        .09, ['#e8a8ff', '#c69afa'], true)
     }
   }
-  const [x, y, z] = player
   const stride = player[1] >= 0 && game.player.grounded ? Math.sin(game.sim * .2) *
     Math.min(1, Math.hypot(game.player.vel[0], game.player.vel[2]) / tuning.player_speed) : 0
-  polygon(ring(x, y + .012, z, .64, 18), '#111D2880')
+  if (game.player.grounded) {
+    const shadowStart = faces.length
+    polygon(ring(x, y + .012, z, .64, 18), '#111D2880')
+    if (faces.length > shadowStart) faces[shadowStart].depth = groundDepth
+  }
   for (const side of [-1, 1]) {
     const dx = cos * side * .14 + sin * stride * side * .19
     const dz = -sin * side * .14 + cos * stride * side * .19
@@ -473,17 +627,34 @@ function draw() {
   orb(x, y + 1.08, z, .245, ['#E8B495', '#C88E72'])
   frustum(x, y + 1.23, z, .62, .48, .095, ['#AF8753', '#C09B66'], 12)
   frustum(x, y + 1.325, z, .48, .035, .36, ['#E5C58A', '#D2AD73'], 12)
-  const lx = x + cos * .54, lz = z - sin * .54
   frustum(lx, y + .73, lz, .07, .16, .12, ['#F2C14E'], 6)
-  frustum(lx, y + .85, lz, .15, .13, .24, ['#FFB347', '#FFE9B0'], 6)
+  frustum(lx, y + .85, lz, .15, .13, .24, ['#FFB347', '#FFE9B0'], 6, true)
   frustum(lx, y + 1.09, lz, .15, .035, .1, ['#A37A46'], 6)
   lightSprite([lx, y + .97, lz], 1.23, '255,179,71', .45)
   if (game.sim - pulseTick < 24) {
-    polygon(ring(x, y + .13, z, tuning.pulse_radius * (game.sim - pulseTick + 1) / 24, 40), '#ffe999', true)
+    const progress = (game.sim - pulseTick + 1) / 24
+    const radius = tuning.pulse_radius * progress
+    const alpha = Math.round(255 * (1 - progress)).toString(16).padStart(2, '0')
+    polygon(ring(x, y + .13, z, radius, 40), '#ffe999' + alpha, true, 3 - progress * 2)
+    if (!reducedMotion?.matches) {
+      polygon(ring(x, y + .35, z, radius * .86, 32), '#ffb347' + alpha, true, 1)
+    }
   }
+  drawBursts()
   paint()
   ctx.fillStyle = glow
   ctx.fillRect(0, 0, width, height)
+  if (!reducedMotion?.matches && (windWarning > game.sim || game.wind.active)) {
+    ctx.strokeStyle = '#FFDF9E68'
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    for (let i = 0; i < 24; i++) {
+      const px = (i * 97 + game.sim * 6) % width, py = (i * 59 + game.sim) % height
+      ctx.moveTo(px, py)
+      ctx.quadraticCurveTo(px - 13, py - 3, px - 19 - noise(i) * 24, py - 10)
+    }
+    ctx.stroke()
+  }
   const target = nearestLantern(game)
   const arrow = byId('direction')
   const point = target && project([target.pos[0], target.pos[1] + 2, target.pos[2]])
@@ -529,6 +700,7 @@ function frame(now) {
     pauseEdge = false
     for (const { name, data } of events) {
       sound(tones[name])
+      addBurst(name, data)
       if (name === 'pulse') pulseTick = game.sim
       if (name === 'wind_warning') windWarning = game.sim + tuning.wind_warning * HZ
       if (name === 'paused') { keys.clear(); show('pause') }
