@@ -1,9 +1,18 @@
 {
-  "contract_version": "1.2",
+  "contract_version": "1.3",
   "team": "2A202603399-dong-ngoc-phuc",
   "build_cmd": "npm install --ignore-scripts",
-  "run_cmd": "npm start",
+  "run_cmd": "node serve.mjs",
   "headless_cmd": "node headless.mjs",
+  "bench_cmd": "node bench.mjs",
+  "soak_cmd": "node soak.mjs",
+  "benchmark": {
+    "width": 1280, "height": 720, "shades": 200, "motes": 100,
+    "lit_lanterns": 3, "orbit_radius": 30, "orbit_height": 15, "orbit_seconds": 15, "warmup_s": 3
+  },
+  "soak": {
+    "direction_ticks": 30, "jump": 0.05, "dash": 0.03, "pulse": 0.02, "interact": 0.1
+  },
   "tuning": {
     "player_speed": 6,
     "carry_capacity": 10,

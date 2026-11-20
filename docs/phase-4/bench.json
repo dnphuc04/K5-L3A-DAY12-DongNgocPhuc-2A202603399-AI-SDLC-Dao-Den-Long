@@ -1,0 +1,12 @@
+{
+  "contract_version": "1.3",
+  "avg_fps": 151.28,
+  "p1_low_fps": 39.08,
+  "frame_ms_p95": 22.4,
+  "frames": 4537,
+  "load_ms": 787.77,
+  "peak_mem_mb": null,
+  "vsync_off": true,
+  "renderer": "Canvas 2D projected 3D / Chromium 157.0.4341.60",
+  "os": "win32 10.0.26200 x64"
+}

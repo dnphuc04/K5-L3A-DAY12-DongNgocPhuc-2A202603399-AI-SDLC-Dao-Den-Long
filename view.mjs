@@ -1,4 +1,5 @@
-import { carryCapacity, createGame, dawnTarget, HZ, isSafe, lanternCost, nearestLantern, step } from './game.mjs'
+import { carryCapacity, createGame, dawnTarget, HZ, isSafe, lanternCost, nearestLantern, seededRandom,
+  step, stepBenchmark } from './game.mjs'
 
 const byId = id => document.getElementById(id)
 const canvas = byId('world')
@@ -12,10 +13,21 @@ const advice = ['Châm dầu cho đèn để giữ đảo sáng đến bình min
   'Cầu tre hẹp. Nếu lạc đường, tìm bục nhảy để sang đảo bên kia.',
   'Đi theo dốc lên vành đảo, rồi dùng bục nhảy để tới tháp chuông.']
 let night = 1, total = 0, screen = 'menu', settingsBack = 'menu', pauseEdge = false
-let preferences = { volume: 0.4, sensitivity: 0.5, accessiblePalette: false }
+const defaultKeys = {
+  up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA'], right: ['KeyD'],
+  jump: ['Space'], dash: ['ShiftLeft', 'ShiftRight'], interact: ['KeyE'], pulse: ['KeyQ'], pause: ['Escape', 'KeyP']
+}
+const actionNames = { up: 'Tiến', down: 'Lùi', left: 'Sang trái', right: 'Sang phải',
+  jump: 'Nhảy', dash: 'Lướt', interact: 'Nạp', pulse: 'Tỏa Sáng', pause: 'Tạm dừng' }
+const campaignSeed = 1528
+let preferences = { volume: 0.4, sensitivity: 0.5, accessiblePalette: false, reduceMotion: false, largeText: false, bindings: {} }
 try { Object.assign(preferences, JSON.parse(localStorage.getItem('lantern-settings') ?? '{}')) } catch {}
-document.body.classList.toggle('accessible-palette', preferences.accessiblePalette)
-let audio, nextNote = 0, lastSecond = -1, windWarning = 0
+const binding = action => preferences.bindings?.[action] ?? defaultKeys[action]
+const keyHeld = action => binding(action).some(code => keys.has(code))
+const keyName = code => code.replace(/^(Key|Digit)/, '').replace(/^Shift(Left|Right)$/, 'Shift')
+let rebinding
+let nightsWon = 0, scoreSaved = false, scoreSaving = false
+let audio, nextNote = 0, windWarning = 0
 const tones = {
   mote_picked: [660, 880], lantern_lit: [392, 523, 659], refuel: [523, 659], lantern_out: [294, 196], pulse: [220, 440],
   player_hit: [196, 131], jump: [392, 587], dash: [523, 294], won: [523, 659, 784, 1047],
@@ -35,17 +47,24 @@ function sound(notes, gain = 0.15, length = 0.12) {
   })
 }
 const keys = new Set()
-const controls = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'ArrowUp', 'ArrowDown',
-  'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'Escape', 'KeyP'])
+const cameraKey = code => ['ArrowLeft', 'ArrowRight'].includes(code)
 let game, active = false, yaw = 0, pulseTick = -100
 let faces = [], project, cameraPoint, screenPoint
 let backdrop, scenery, sceneryMap
 const tau = Math.PI * 2
 const materials = new Map()
+const lightTextures = new Map()
+const unitRings = new Map()
 const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+const lessMotion = () => preferences.reduceMotion || reducedMotion?.matches
+const params = new URLSearchParams(location.search)
+const benchmarking = params.has('bench') && typeof window.benchComplete === 'function'
+let shadeNotice, countdownNotice
 const bursts = []
 let lightSources = [], mist
 let groundDepth
+let cameraWorld
+let viewportWidth, viewportHeight
 
 const effects = {
   mote_picked: { rgb: '255,226,124', count: 9, life: 28 },
@@ -57,19 +76,21 @@ const effects = {
 
 function input() {
   return {
-    move: [Number(keys.has('KeyD')) - Number(keys.has('KeyA')),
-      Number(keys.has('KeyW') || keys.has('ArrowUp')) - Number(keys.has('KeyS') || keys.has('ArrowDown'))],
-    cam_yaw_deg: yaw, interact: keys.has('KeyE'), pulse: keys.has('KeyQ'), jump: keys.has('Space'),
-    dash: keys.has('ShiftLeft') || keys.has('ShiftRight'), pause: pauseEdge
+    move: [Number(keyHeld('right')) - Number(keyHeld('left')), Number(keyHeld('up')) - Number(keyHeld('down'))],
+    cam_yaw_deg: yaw, interact: keyHeld('interact'), pulse: keyHeld('pulse'), jump: keyHeld('jump'),
+    dash: keyHeld('dash'), pause: pauseEdge
   }
 }
 
 function reset() {
-  game = createGame(contract, 1528 + night - 1, {}, night)
+  game = createGame(contract, campaignSeed + night - 1, {}, night)
+  scoreSaved = false
+  byId('score-feedback').hidden = true
+  byId('score-name').value = ''
+  shadeNotice = countdownNotice = null
   yaw = 0
   pulseTick = -100
   bursts.length = 0
-  lastSecond = -1
   windWarning = 0
   nextNote = 0
   keys.clear()
@@ -82,6 +103,10 @@ function show(next, reason = '') {
   byId('settings-fields').hidden = next !== 'settings'
   byId('pause-actions').hidden = next !== 'pause'
   byId('menu-settings').hidden = next !== 'menu'
+  byId('open-leaderboard').hidden = next !== 'menu'
+  byId('leaderboard').hidden = next !== 'leaderboard'
+  byId('score-form').hidden = scoreSaved || !['loss', 'dawn'].includes(next)
+  byId('score-feedback').hidden = !['loss', 'dawn'].includes(next)
   const content = {
     menu: ['Đảo Đèn Lồng', 'Cùng Mây thắp sáng ba hòn đảo.', 'Bắt đầu'],
     intro: ['Đêm ' + night + ' · ' + names[night - 1],
@@ -90,7 +115,8 @@ function show(next, reason = '') {
     win: ['Đảo đã sáng!', 'Điểm đêm: ' + game.score + ' · Tổng điểm: ' + total, 'Đêm kế tiếp'],
     loss: ['Đêm đã khép lại', reason === 'dawn' ? 'Bình minh đến khi đảo chưa đủ đèn sáng.' : 'Mây đã hết Ngọn Lửa.', 'Chơi lại'],
     dawn: ['Bình Minh', 'Cả ba đảo đã sáng. Tổng điểm: ' + total, 'Về menu'],
-    settings: ['Cài đặt', '', 'Quay lại']
+    settings: ['Cài đặt', '', 'Quay lại'],
+    leaderboard: ['Bảng xếp hạng', '', 'Về menu']
   }
   if (active) return
   const [title, message, label] = content[next]
@@ -102,6 +128,7 @@ function show(next, reason = '') {
 function mainMenu() {
   night = 1
   total = 0
+  nightsWon = 0
   reset()
   show('menu')
 }
@@ -114,7 +141,15 @@ function settings() {
   settingsBack = screen
   for (const key of ['volume', 'sensitivity']) byId(key).value = preferences[key]
   byId('accessible-palette').checked = preferences.accessiblePalette
+  byId('reduce-motion').checked = preferences.reduceMotion
+  byId('large-text').checked = preferences.largeText
+  byId('key-feedback').textContent = ''
   show('settings')
+}
+function applyPreferences() {
+  document.body.classList.toggle('accessible-palette', preferences.accessiblePalette)
+  document.body.classList.toggle('reduce-motion', preferences.reduceMotion)
+  document.body.classList.toggle('large-text', preferences.largeText)
 }
 function savePreferences() {
   try { localStorage.setItem('lantern-settings', JSON.stringify(preferences)) } catch {}
@@ -125,11 +160,81 @@ for (const key of ['volume', 'sensitivity']) {
     savePreferences()
   })
 }
-byId('accessible-palette').addEventListener('change', event => {
-  preferences.accessiblePalette = event.target.checked
-  document.body.classList.toggle('accessible-palette', preferences.accessiblePalette)
+for (const [id, key] of [['accessible-palette', 'accessiblePalette'], ['reduce-motion', 'reduceMotion'], ['large-text', 'largeText']]) {
+  byId(id).addEventListener('change', event => {
+    preferences[key] = event.target.checked
+    applyPreferences()
+    savePreferences()
+  })
+}
+const keyButtons = {}
+for (const [action, name] of Object.entries(actionNames)) {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.onclick = () => {
+    rebinding = action
+    byId('key-feedback').textContent = 'Bấm phím mới cho ' + name + '.'
+  }
+  keyButtons[action] = button
+  byId('key-bindings').append(button)
+}
+function updateBindings() {
+  for (const [action, button] of Object.entries(keyButtons)) {
+    button.textContent = actionNames[action] + ' · ' + binding(action).map(keyName).join('/')
+  }
+  byId('controls-guide').textContent = ['up', 'down', 'left', 'right'].map(action => keyName(binding(action)[0])).join(' ') +
+    ' · Di chuyển / ' + ['jump', 'dash', 'interact', 'pulse', 'pause']
+      .map(action => keyName(binding(action)[0]) + ' · ' + actionNames[action]).join(' / ')
+}
+byId('restore-keys').onclick = () => {
+  preferences.bindings = {}
+  rebinding = null
   savePreferences()
-})
+  updateBindings()
+  byId('key-feedback').textContent = 'Đã khôi phục phím mặc định.'
+}
+applyPreferences()
+updateBindings()
+byId('open-leaderboard').onclick = async () => {
+  show('leaderboard')
+  const list = byId('leaderboard')
+  list.replaceChildren()
+  byId('message').textContent = 'Đang tải…'
+  try {
+    const response = await fetch('./leaderboard')
+    if (!response.ok) throw new Error()
+    const { entries } = await response.json()
+    if (screen !== 'leaderboard') return
+    byId('message').textContent = entries.length ? '' : 'Chưa có điểm đã lưu.'
+    for (const entry of entries) {
+      const li = document.createElement('li')
+      li.textContent = entry.name + ' · ' + entry.score + ' điểm · ' + entry.nights_won + '/3 đêm'
+      list.append(li)
+    }
+  } catch {
+    if (screen === 'leaderboard') byId('message').textContent = 'Không thể tải điểm đã lưu.'
+  }
+}
+byId('score-form').onsubmit = async event => {
+  event.preventDefault()
+  if (scoreSaved || scoreSaving) return
+  scoreSaving = true
+  start.disabled = true
+  const feedback = byId('score-feedback')
+  try {
+    const response = await fetch('./leaderboard', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: byId('score-name').value, score: total, nights_won: nightsWon, seed: campaignSeed }) })
+    if (!response.ok) throw new Error()
+    scoreSaved = true
+    byId('score-form').hidden = true
+    feedback.textContent = 'Đã lưu điểm.'
+  } catch {
+    feedback.textContent = 'Không lưu được điểm. Hãy thử lại.'
+  } finally {
+    scoreSaving = false
+    start.disabled = false
+  }
+}
 byId('menu-settings').onclick = settings
 byId('pause-settings').onclick = settings
 byId('quit').onclick = mainMenu
@@ -144,15 +249,32 @@ start.onclick = () => {
     case 'win': night++; reset(); show('intro'); break
     case 'loss': reset(); show('intro'); break
     case 'dawn': mainMenu(); break
-    case 'settings': show(settingsBack); break
+    case 'settings': rebinding = null; show(settingsBack); break
+    case 'leaderboard': mainMenu(); break
   }
 }
 mainMenu()
 
 window.addEventListener('keydown', event => {
-  if (!['play', 'pause'].includes(screen) || !controls.has(event.code)) return
+  if (screen === 'settings' && rebinding && !event.repeat && !event.altKey && !event.ctrlKey && !event.metaKey) {
+    event.preventDefault()
+    const duplicate = Object.keys(defaultKeys).find(action => action !== rebinding && binding(action).includes(event.code))
+    if (duplicate || cameraKey(event.code) || !event.code || event.code === 'Tab') {
+      byId('key-feedback').textContent = duplicate ? 'Phím trùng với ' + actionNames[duplicate] + '.' : 'Phím này đang được dành riêng.'
+      return
+    }
+    const action = rebinding
+    preferences.bindings = { ...preferences.bindings, [action]: [event.code] }
+    rebinding = null
+    savePreferences()
+    updateBindings()
+    byId('key-feedback').textContent = 'Đã đổi phím ' + actionNames[action] + '.'
+    return
+  }
+  if (!['play', 'pause'].includes(screen) ||
+      !(cameraKey(event.code) || Object.keys(defaultKeys).some(action => binding(action).includes(event.code)))) return
   event.preventDefault()
-  if (event.code === 'Escape' || event.code === 'KeyP') {
+  if (binding('pause').includes(event.code)) {
     if (!event.repeat && screen === 'pause') resume()
     else if (!event.repeat) pauseEdge = true
     return
@@ -165,17 +287,23 @@ canvas.addEventListener('mousemove', event => {
   if (active && event.buttons & 1) yaw += event.movementX * preferences.sensitivity
 })
 
+const litChannel = (base, shade, offset, haze, fog) =>
+  Math.round(Math.min(255, base * shade + offset) * (1 - fog) + haze * fog)
+
 function surfaceColor(vertices, color, depth) {
   if (!materials.has(color)) {
     const hex = Number.parseInt(color.slice(1), 16)
     materials.set(color, [hex >> 16, (hex >> 8) & 255, hex & 255])
   }
   const [a, b, c] = vertices
-  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2]
-  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2]
-  const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
-  const normal = Math.hypot(nx, ny, nz) || 1
-  const shade = .73 + (.26 * Math.abs(ny) + .16 * (nx * .6 + nz * .8)) / normal
+  let shade = .99
+  if (a[1] !== b[1] || a[1] !== c[1]) {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2]
+    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2]
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+    const normal = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1
+    shade = .73 + (.26 * Math.abs(ny) + .16 * (nx * .6 + nz * .8)) / normal
+  }
   const x = (a[0] + c[0]) / 2, y = (a[1] + c[1]) / 2, z = (a[2] + c[2]) / 2
   let warm = 0
   for (const light of lightSources) {
@@ -186,9 +314,7 @@ function surfaceColor(vertices, color, depth) {
   warm = Math.min(warm, 1)
   const fog = Math.min(.64, Math.max(0, (depth - 14) / 76))
   const [r, g, blue] = materials.get(color)
-  const channel = (base, moon, amber, haze) =>
-    Math.round(Math.min(255, base * shade + moon + amber * warm) * (1 - fog) + haze * fog)
-  return `rgb(${channel(r, 1, 116, mist[0])},${channel(g, 5, 73, mist[1])},${channel(blue, 12, 24, mist[2])})`
+  return `rgb(${litChannel(r, shade, 1 + 116 * warm, mist[0], fog)},${litChannel(g, shade, 5 + 73 * warm, mist[1], fog)},${litChannel(blue, shade, 12 + 24 * warm, mist[2], fog)})`
 }
 
 function polygon(vertices, color, line = false, width = 2, emissive = false, floor = false) {
@@ -206,8 +332,8 @@ function polygon(vertices, color, line = false, width = 2, emissive = false, flo
   if (clipped.length < 3) return
   const depth = clipped.reduce((sum, point) => sum + point[2], 0) / clipped.length
   const visible = clipped.map(screenPoint)
-  if (visible.every(p => p[0] < 0) || visible.every(p => p[0] > canvas.clientWidth) ||
-      visible.every(p => p[1] < 0) || visible.every(p => p[1] > canvas.clientHeight)) return
+  if (visible.every(p => p[0] < 0) || visible.every(p => p[0] > viewportWidth) ||
+      visible.every(p => p[1] < 0) || visible.every(p => p[1] > viewportHeight)) return
   const paintColor = line || emissive || color.length !== 7 ? color : surfaceColor(vertices, color, depth)
   // A broad floor face can have a nearer centroid than Mây even though it lies beneath her.
   const drawDepth = floor && vertices.every(point => point[1] <= game.player.pos[1] + .03)
@@ -219,22 +345,31 @@ function floorPolygon(vertices, color) {
   polygon(vertices, color, false, 2, false, true)
 }
 function ring(x, y, z, r, n) {
-  return Array.from({ length: n }, (_, i) => [x + Math.cos(i * tau / n) * r, y, z + Math.sin(i * tau / n) * r])
+  if (!unitRings.has(n)) unitRings.set(n,
+    Array.from({ length: n }, (_, i) => [Math.cos(i * tau / n), Math.sin(i * tau / n)]))
+  return unitRings.get(n).map(([cos, sin]) => [x + cos * r, y, z + sin * r])
 }
 
-function frustum(x, y, z, lower, upper, height, colors, sides = 8, emissive = false) {
+function frustum(x, y, z, lower, upper, height, colors, sides = 8, emissive = false, cull = false) {
   const a = ring(x, y, z, lower, sides)
   const b = ring(x, y + height, z, upper, sides)
   for (let i = 0; i < sides; i++) {
     const next = (i + 1) % sides
+    if (cull) {
+      const [nx1, nz1] = unitRings.get(sides)[i], [nx2, nz2] = unitRings.get(sides)[next]
+      const [cx, cy, cz] = cameraWorld
+      const facing = (nx1 + nx2) * (cx - a[i][0]) + (nz1 + nz2) * (cz - a[i][2]) +
+        (1 + nx1 * nx2 + nz1 * nz2) * (lower - upper) / height * (cy - y)
+      if (facing <= 0) continue
+    }
     polygon([a[i], a[next], b[next], b[i]], colors[i % colors.length], false, 2, emissive)
   }
-  if (upper > 0) polygon(b, colors[0], false, 2, emissive)
+  if (upper > 0 && (!cull || cameraWorld[1] > y + height)) polygon(b, colors[0], false, 2, emissive)
 }
 
-function orb(x, y, z, r, colors, emissive = false) {
-  frustum(x, y - r, z, 0, r, r, colors, 5, emissive)
-  frustum(x, y, z, r, 0, r, colors, 5, emissive)
+function orb(x, y, z, r, colors, emissive = false, cull = false) {
+  frustum(x, y - r, z, 0, r, r, colors, 5, emissive, cull)
+  frustum(x, y, z, r, 0, r, colors, 5, emissive, cull)
 }
 
 function noise(i) {
@@ -417,15 +552,30 @@ function lightSprite(pos, radius, rgb, intensity, additive = true) {
   const point = project(pos)
   if (!point) return
   const [x, y, depth] = point
-  const r = Math.min(220, radius * canvas.clientHeight / depth)
-  if (x < -r || y < -r || x > canvas.clientWidth + r || y > canvas.clientHeight + r) return
+  const r = Math.min(220, radius * viewportHeight / depth)
+  if (x < -r || y < -r || x > viewportWidth + r || y > viewportHeight + r) return
   if (r < .45) return
   faces.push({ depth, light: { x, y, r, rgb, intensity, additive } })
 }
 
+function lightTexture(rgb) {
+  if (lightTextures.has(rgb)) return lightTextures.get(rgb)
+  const image = document.createElement('canvas')
+  image.width = image.height = 64
+  const ink = image.getContext('2d')
+  const halo = ink.createRadialGradient(32, 32, 0, 32, 32, 32)
+  halo.addColorStop(0, 'rgba(' + rgb + ',1)')
+  halo.addColorStop(.3, 'rgba(' + rgb + ',.35)')
+  halo.addColorStop(1, 'rgba(' + rgb + ',0)')
+  ink.fillStyle = halo
+  ink.fillRect(0, 0, 64, 64)
+  lightTextures.set(rgb, image)
+  return image
+}
+
 function addBurst(name, data) {
   const effect = effects[name]
-  if (!effect || reducedMotion?.matches) return
+  if (!effect || lessMotion()) return
   const lamp = name === 'lantern_lit' && game.lanterns.find(item => item.id === data.lantern_id)
   const [x, y, z] = lamp ? lamp.pos : game.player.pos
   bursts.push({ ...effect, x, y: y + (lamp ? 2.5 : .75), z, tick: game.sim, seed: game.sim + bursts.length * 73 })
@@ -485,21 +635,23 @@ function drawLanternStatus({ x, y, size, lantern, flicker }) {
 
 function paint() {
   faces.sort((a, b) => b.depth - a.depth)
-  for (const { points, color, line, width, light, status } of faces) {
+  for (const { points, color, line, width, light, status, eye } of faces) {
     if (status) {
       drawLanternStatus(status)
       continue
     }
     if (light) {
       const { x, y, r, rgb, intensity, additive } = light
-      const halo = ctx.createRadialGradient(x, y, 0, x, y, r)
-      halo.addColorStop(0, 'rgba(' + rgb + ',' + intensity + ')')
-      halo.addColorStop(.3, 'rgba(' + rgb + ',' + intensity * .35 + ')')
-      halo.addColorStop(1, 'rgba(' + rgb + ',0)')
       if (additive) ctx.globalCompositeOperation = 'screen'
-      ctx.fillStyle = halo
-      ctx.fillRect(x - r, y - r, r * 2, r * 2)
+      ctx.globalAlpha = intensity
+      ctx.drawImage(lightTexture(rgb), x - r, y - r, r * 2, r * 2)
+      ctx.globalAlpha = 1
       if (additive) ctx.globalCompositeOperation = 'source-over'
+      continue
+    }
+    if (eye) {
+      ctx.fillStyle = eye.color
+      ctx.fillRect(eye.x - eye.size / 2, eye.y - eye.size / 2, eye.size, eye.size)
       continue
     }
     ctx.beginPath()
@@ -518,9 +670,9 @@ function paint() {
   faces = []
 }
 
-function draw() {
-  const width = canvas.clientWidth
-  const height = canvas.clientHeight
+function draw(orbitElapsed) {
+  const width = viewportWidth = canvas.clientWidth
+  const height = viewportHeight = canvas.clientHeight
   const scale = Math.min(window.devicePixelRatio || 1, 2)
   if (canvas.width !== Math.round(width * scale) || canvas.height !== Math.round(height * scale)) {
     canvas.width = Math.round(width * scale)
@@ -533,22 +685,43 @@ function draw() {
   }
   ctx.drawImage(backdrop.image, 0, 0)
   const player = game.player.pos
-  const menuOrbit = screen === 'menu' && !reducedMotion?.matches ? performance.now() * .008 : 0
+  const menuOrbit = screen === 'menu' && !lessMotion() ? performance.now() * .008 : 0
   const angle = (yaw + menuOrbit) * Math.PI / 180
   const sin = Math.sin(angle), cos = Math.cos(angle)
   const pitch = .35
   const up = Math.cos(pitch), down = Math.sin(pitch)
   const focal = height * .99
+  cameraWorld = [player[0] - sin * 7.8, player[1] + 4.8, player[2] - cos * 7.8]
   cameraPoint = ([x, y, z]) => {
     const dx = x - player[0], dz = z - player[2]
     const forward = dx * sin + dz * cos + 7.8
     const vertical = y - player[1] - 4.8
     return [dx * cos - dz * sin, forward * down + vertical * up, forward * up - vertical * down]
   }
+  if (orbitElapsed !== undefined) {
+    const b = contract.benchmark
+    const angle = tau * orbitElapsed / (b.orbit_seconds * 1000)
+    const cx = Math.cos(angle), cz = Math.sin(angle)
+    cameraWorld = [cx * b.orbit_radius, b.orbit_height, cz * b.orbit_radius]
+    const distance = Math.hypot(b.orbit_radius, b.orbit_height)
+    cameraPoint = ([x, y, z]) => {
+      const radial = x * cx + z * cz
+      return [-x * cz + z * cx, (y * b.orbit_radius - radial * b.orbit_height) / distance,
+        distance - (radial * b.orbit_radius + y * b.orbit_height) / distance]
+    }
+  }
+  const eyeSin = orbitElapsed === undefined ? sin : -Math.cos(tau * orbitElapsed / (contract.benchmark.orbit_seconds * 1000))
+  const eyeCos = orbitElapsed === undefined ? cos : -Math.sin(tau * orbitElapsed / (contract.benchmark.orbit_seconds * 1000))
   screenPoint = ([x, y, depth]) => [width / 2 + x * focal / depth, height * .43 - y * focal / depth, depth]
   project = point => {
     const p = cameraPoint(point)
     return p[2] >= .45 ? screenPoint(p) : null
+  }
+  const inView = (x, y, z, radius) => {
+    const p = cameraPoint([x, y, z])
+    if (p[2] < .45 - radius) return false
+    const limit = Math.max(.45, p[2] + radius) / focal
+    return Math.abs(p[0]) < width * .5 * limit + radius && Math.abs(p[1]) < height * .58 * limit + radius
   }
   const [x, y, z] = player
   groundDepth = cameraPoint([x, y, z])[2] + .7
@@ -559,7 +732,7 @@ function draw() {
     if (!lamp.lit) continue
     const [x, y, z] = lamp.pos
     lightSources.push({ x, y: y + .75, z, rangeSquared: 36,
-      power: reducedMotion?.matches ? .9 : .9 + Math.sin(game.sim * .14 + x) * .08 })
+      power: benchmarking || lessMotion() ? .9 : .9 + Math.sin(game.sim * .14 + x) * .08 })
   }
   island()
   const ambient = tuning.ambient_base + tuning.ambient_progress *
@@ -568,11 +741,12 @@ function draw() {
   glow.addColorStop(0, 'rgba(255,179,71,' + (ambient * .1) + ')')
   glow.addColorStop(1, 'rgba(255,179,71,0)')
   for (const { pos: [x, y, z] } of game.motes) {
+    if (!inView(x, y + .65, z, 1)) continue
     const hover = y + .65 + Math.sin(game.sim / 19 + x) * .19
     lightSprite([x, hover, z], .68, '255,229,138', .56)
-    orb(x, hover, z, .13, ['#FFF6C2', '#FFE58A'], true)
+    orb(x, hover, z, .13, ['#FFF6C2', '#FFE58A'], true, true)
     const spark = game.sim / 26 + x
-    orb(x + Math.cos(spark) * .31, hover + .1, z + Math.sin(spark) * .31, .035, ['#FFE58A'])
+    if (!benchmarking) orb(x + Math.cos(spark) * .31, hover + .1, z + Math.sin(spark) * .31, .035, ['#FFE58A'])
   }
   for (const { pos: [x, y, z], state } of game.drifters) {
     if (state !== 'removed') frustum(x, y, z, .38, .08, .85, ['#8FA3B8'], 5)
@@ -597,7 +771,7 @@ function draw() {
     const paperHeight = lantern.lit ? .62 : .62 * .8
     const roof = y + 2.16 + paperHeight
     const low = lantern.lit && !isSafe(tuning, lantern)
-    const flicker = low && !reducedMotion?.matches && game.sim % HZ >= HZ / 2 ? .4 : 1
+    const flicker = low && !lessMotion() && game.sim % HZ >= HZ / 2 ? .4 : 1
     frustum(x, y + 2.16, z, .48, .56, paperHeight,
       flicker < 1 ? ['#A45C30', '#BD883D'] : panel, 8, lantern.lit)
     if (!lantern.lit) {
@@ -624,20 +798,23 @@ function draw() {
     const marker = project([x, y + 3.58, z])
     if (marker && marker[0] >= 0 && marker[0] <= width && marker[1] >= 0 && marker[1] <= height) {
       const [x, y, depth] = marker
-      const size = Math.max(12, Math.min(17, 12 + 68 / depth))
+      const size = (preferences.largeText ? 1.25 : 1) * Math.max(18, Math.min(23, 15 + 68 / depth))
       faces.push({ depth, status: { x, y, size, lantern, flicker } })
     }
   }
   for (const shade of game.shades) {
     const [x, y, z] = shade.pos
     const height = y + .58 + Math.sin(game.sim / 13 + x) * .13
+    if (!inView(x, height, z, 1.65)) continue
     const accent = preferences.accessiblePalette ? '#00B3FF' : '#7A3CFF'
     lightSprite([x, height, z], 1.28, preferences.accessiblePalette ? '0,179,255' : '122,60,255', .22, false)
-    frustum(x, height - .55, z, .15, .54, .53, ['#120A1A', '#372459'], 7)
-    orb(x, height, z, .73, ['#120A1A', accent], true)
+    frustum(x, height - .55, z, .15, .54, .53, ['#120A1A', '#372459'], 7, false, true)
+    orb(x, height, z, .73, ['#120A1A', accent], true, true)
     for (const side of [-1, 1]) {
-      orb(x - sin * .55 + cos * side * .23, height + .1, z - cos * .55 - sin * side * .23,
-        .09, [accent, '#F5F1E6'], true)
+      const point = project([x - eyeSin * .73 + eyeCos * side * .23, height + .1,
+        z - eyeCos * .73 - eyeSin * side * .23])
+      if (point) faces.push({ depth: point[2], eye: { x: point[0], y: point[1],
+        size: Math.max(1, Math.min(18, .16 * focal / point[2])), color: accent } })
     }
     if (shade.state === 'stunned') polygon(ring(x, height + .76, z, .45, 12), '#D4DBF2', true)
     if (shade.state === 'drain') lightSprite([x, height + .4, z], .43, '255,179,71', .45)
@@ -669,7 +846,7 @@ function draw() {
     const radius = tuning.pulse_radius * progress
     const alpha = Math.round(255 * (1 - progress)).toString(16).padStart(2, '0')
     polygon(ring(x, y + .13, z, radius, 40), '#ffe999' + alpha, true, 3 - progress * 2)
-    if (!reducedMotion?.matches) {
+    if (!lessMotion()) {
       polygon(ring(x, y + .35, z, radius * .86, 32), '#ffb347' + alpha, true, 1)
     }
   }
@@ -677,7 +854,7 @@ function draw() {
   paint()
   ctx.fillStyle = glow
   ctx.fillRect(0, 0, width, height)
-  if (!reducedMotion?.matches && (windWarning > game.sim || game.wind.active)) {
+  if (!lessMotion() && (windWarning > game.sim || game.wind.active)) {
     ctx.strokeStyle = '#FFDF9E68'
     ctx.lineWidth = 1.5
     ctx.beginPath()
@@ -696,6 +873,17 @@ function draw() {
     const dx = target.pos[0] - player[0], dz = target.pos[2] - player[2]
     arrow.style.rotate = Math.atan2(dx * cos - dz * sin, dx * sin + dz * cos) + 'rad'
     arrow.setAttribute('aria-label', 'Hướng tới ' + target.id)
+  }
+  const shadeMarker = byId('shade-direction')
+  shadeMarker.hidden = !active || !shadeNotice || shadeNotice.until <= game.sim
+  if (!shadeMarker.hidden) {
+    const [dx, , dz] = shadeNotice.pos.map((value, index) => value - player[index])
+    const theta = Math.atan2(dx * cos - dz * sin, dx * sin + dz * cos)
+    const right = Math.sin(theta), top = -Math.cos(theta)
+    const edge = Math.max(Math.abs(right), Math.abs(top)) || 1
+    shadeMarker.style.left = 50 + 43 * right / edge + '%'
+    shadeMarker.style.top = 50 + 33 * top / edge + '%'
+    shadeMarker.style.rotate = theta + 'rad'
   }
 }
 
@@ -719,10 +907,22 @@ function updateHud() {
   byId('pulse-cd').textContent = cooldown(player.pulseCd)
   const target = nearestLantern(game, true)
   const near = target && Math.hypot(target.pos[0] - player.pos[0], target.pos[2] - player.pos[2]) <= tuning.interact_radius
-  byId('hint').textContent = active && near ? (target.lit ? 'E — Châm dầu' :
-    'E — Nạp đom đóm (' + target.deposited + '/' + lanternCost(tuning, target) + ')') : ''
-  if (active && seconds !== lastSecond && seconds <= 10 && seconds > 0) sound(tones.countdown)
-  lastSecond = seconds
+  const interactKey = keyName(binding('interact')[0])
+  byId('hint').textContent = active && near ? interactKey + (target.lit ? ' — Châm dầu' :
+    ' — Nạp đom đóm (' + target.deposited + '/' + lanternCost(tuning, target) + ')') : ''
+  if (active && seconds !== countdownNotice && seconds <= 10 && seconds > 0) {
+    sound(tones.countdown)
+    countdownNotice = seconds
+  }
+  const messages = []
+  if (shadeNotice?.until > game.sim) messages.push('Bóng Mực xuất hiện')
+  if (windWarning > game.sim) messages.push('Gió sắp thổi')
+  if (countdownNotice && seconds > 0) messages.push('Còn ' + countdownNotice + ' giây')
+  if (game.lanterns.some(lamp => lamp.lit && !isSafe(tuning, lamp))) messages.push('Đèn sắp cạn dầu')
+  const captions = byId('captions')
+  captions.hidden = !active || messages.length === 0
+  const caption = messages.join(' · ')
+  if (captions.textContent !== caption) captions.textContent = caption
 }
 
 let last = performance.now(), budget = 0
@@ -740,9 +940,16 @@ function frame(now) {
       addBurst(name, data)
       if (name === 'pulse') pulseTick = game.sim
       if (name === 'wind_warning') windWarning = game.sim + tuning.wind_warning * HZ
+      if (name === 'shade_spawned') {
+        const shade = game.shades.find(shade => shade.id === data.id)
+        if (shade) shadeNotice = { pos: shade.pos, until: game.sim + 3 * HZ }
+      }
       if (name === 'paused') { keys.clear(); show('pause') }
       if (name === 'game_over') {
-        if (data.result === 'won') total += game.score
+        if (data.result === 'won') {
+          total += game.score
+          nightsWon++
+        }
         sound(tones[data.result])
         show(data.result === 'won' ? (night === 3 ? 'dawn' : 'win') : 'loss', data.reason)
       }
@@ -757,4 +964,41 @@ function frame(now) {
   updateHud()
   requestAnimationFrame(frame)
 }
-requestAnimationFrame(frame)
+function startBenchmark() {
+  const b = contract.benchmark
+  const seed = Number(params.get('bench'))
+  const random = seededRandom(seed)
+  const radius = contract.maps[0].islands[0][2]
+  const point = () => {
+    const angle = random() * tau
+    const r = Math.sqrt(random()) * radius
+    return [r * Math.cos(angle), 0, r * Math.sin(angle)]
+  }
+  game = createGame(contract, seed, {
+    shades: Array.from({ length: b.shades }, () => ({ pos: point(), state: 'wander' })),
+    motes: Array.from({ length: b.motes }, point),
+    lanterns: Array.from({ length: b.lit_lanterns }, (_, index) => ({ id: 'L' + (index + 1), lit: true }))
+  })
+  overlay.hidden = true
+  updateHud()
+  const duration = Number(params.get('duration')) * 1000
+  const warmup = b.warmup_s * 1000, times = []
+  let first, previous
+  function benchFrame(timestamp) {
+    first ??= timestamp
+    const elapsed = timestamp - first
+    if (elapsed >= warmup + duration) {
+      window.benchComplete(times)
+      return
+    }
+    while (game.sim < Math.floor(elapsed * HZ / 1000)) stepBenchmark(game)
+    draw(elapsed)
+    if (previous === undefined) window.benchFirstFrame()
+    else if (previous - first >= warmup) times.push(timestamp - previous)
+    previous = timestamp
+    requestAnimationFrame(benchFrame)
+  }
+  requestAnimationFrame(benchFrame)
+}
+if (benchmarking) startBenchmark()
+else requestAnimationFrame(frame)

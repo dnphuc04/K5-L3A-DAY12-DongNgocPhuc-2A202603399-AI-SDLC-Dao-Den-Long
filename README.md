@@ -1,8 +1,21 @@
 # Day 12 — AI SDLC: Đảo Đèn Lồng
 
+[Video demo MP4](docs/demo/demo.mp4) · [Bằng chứng Phase 4](docs/phase-4/README.md) · [Changelog](CHANGELOG.md)
+
 ## Chơi ba đêm
 
-Cần Node.js 20 trở lên. Chạy `npm start` và mở [localhost:8080](http://localhost:8080) trên trình duyệt. Nếu PowerShell chặn script npm, dùng `npm.cmd start`.
+Game 3D góc nhìn thứ ba. Dẫn Mây gom đom đóm và giữ ba hòn đảo sáng qua ba đêm.
+
+![Mây bên trụ đèn, với tiến độ nạp và chỉ báo Bóng Mực](docs/phase-4/gameplay.png)
+
+**Yêu cầu** Node.js 20 trở lên và trình duyệt hiện đại có Canvas 2D. Benchmark cần Chromium, Google Chrome hoặc Microsoft Edge đã cài.
+
+```sh
+npm ci
+npm start
+```
+
+Mở [localhost:8080](http://localhost:8080). Trên PowerShell có thể dùng `npm.cmd` nếu script `npm` bị chặn.
 
 | Phím | Điều khiển |
 | --- | --- |
@@ -14,16 +27,23 @@ Cần Node.js 20 trở lên. Chạy `npm start` và mở [localhost:8080](http:/
 | Q | Tỏa Sáng, tốn 3 đom đóm |
 | Esc hoặc P | Tạm dừng hoặc tiếp tục |
 
-Giữ Mây còn Ngọn Lửa và đủ đèn sáng tới bình minh. Đảo Bến cần 3/5 đèn, Đảo Cau cần 4/6 và Đảo Chuông cần 5/7. Mỗi đèn cần 10 đom đóm để thắp lần đầu và 5 để thắp lại. Châm dầu bằng đom đóm để đèn duy trì vùng an toàn. Khi dầu dưới 30, đèn nhấp nháy, mất vùng an toàn và có thể bị Bóng Mực hút dầu. Sức chứa tăng từ 10 lên tối đa 20 khi thắp đèn. Trong **Cài đặt**, có thể bật **Bảng màu dễ phân biệt**.
+Giữ Mây còn Ngọn Lửa và đủ đèn sáng tới bình minh. Đảo Bến cần 3/5 đèn, Đảo Cau cần 4/6 và Đảo Chuông cần 5/7. Mỗi đèn cần 10 đom đóm để thắp lần đầu và 5 để thắp lại. Châm dầu bằng đom đóm để đèn duy trì vùng an toàn. Khi dầu dưới 30, đèn nhấp nháy, mất vùng an toàn và có thể bị Bóng Mực hút dầu. Sức chứa tăng từ 10 lên tối đa 20 khi thắp đèn.
 
-## Kiểm tra Phase 3
+**Cài đặt** có đổi phím, khôi phục phím mặc định, bảng màu dễ phân biệt, giảm chuyển động và chữ lớn. Sau khi thua hoặc thắng Đêm 3, có thể lưu điểm bằng tên 3–12 chữ cái không dấu, chữ số hoặc dấu gạch dưới. Menu có **Bảng xếp hạng**. Game lưu bảng điểm trong `.leaderboard.json` ở thư mục ứng dụng.
+
+## Kiểm tra và đo hiệu năng
 
 ```sh
 npm test
 node headless.mjs --seed 20 --night 3 --ticks 18000 --out run.local.jsonl
+node bench.mjs --seed 42 --duration 30 --out bench.json
+node soak.mjs --seed 7 --nights 10 --out soak.json
+node serve.mjs --export-leaderboard out.json
 ```
 
-[Contract v1.2](game.contract.json) khai báo thông số và bản đồ dùng chung cho game và CLI. Xem [quyết định thiết kế, thay đổi contract và bằng chứng](docs/phase-3/README.md). Bằng chứng cũ nằm ở [Phase 1](docs/phase-1/README.md) và [Phase 2](docs/phase-2/README.md).
+[Contract v1.3](game.contract.json) khai báo thông số và lệnh dùng chung. Benchmark dùng viewport 1280×720 trong cửa sổ Chromium, với cờ `--disable-gpu-vsync` và `--disable-frame-rate-limit`. Trình duyệt không cung cấp tổng RSS của các tiến trình web qua API đo khung hình nên `peak_mem_mb` là `null`. Nếu cần, đặt `BENCH_BROWSER` thành đường dẫn trình duyệt hoặc `BENCH_HEADLESS=1` để kiểm tra nhanh trên máy không có desktop.
+
+Bằng chứng kiểm thử nằm ở [Phase 1](docs/phase-1/README.md), [Phase 2](docs/phase-2/README.md), [Phase 3](docs/phase-3/README.md) và [Phase 4](docs/phase-4/README.md).
 
 ### Sáng tạo của tôi
 

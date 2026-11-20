@@ -18,6 +18,13 @@ export const carryCapacity = (t, successfulLights) =>
 export const dawnTarget = game => Math.ceil(game.t.win_ratio * game.lanterns.length)
 export const isSafe = (t, lamp) => lamp.lit && lamp.fuelUnits >= t.low_fuel_threshold * HZ
 const fuelOutput = lamp => Math.round(lamp.fuelUnits * 10 / HZ) / 10
+export function seededRandom(seed) {
+  let state = seed >>> 0
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0
+    return state / 4294967296
+  }
+}
 const ring = ([x, y, z, radius, count, start, stride = 360 / count]) =>
   Array.from({ length: count }, (_, i) => advance([x, y, z],
     [Math.cos((start + i * stride) * radians), Math.sin((start + i * stride) * radians)], radius))
@@ -51,11 +58,7 @@ function surface(game, [x, , z]) {
 export function createGame(contract, seed, scenario = {}, night = 1) {
   const t = contract.tuning
   const map = contract.maps[night - 1]
-  let rng = seed >>> 0
-  const random = () => {
-    rng = (Math.imul(rng, 1664525) + 1013904223) >>> 0
-    return rng / 4294967296
-  }
+  const random = seededRandom(seed)
   const moteSites = map.mote_rings.flatMap(ring)
   const shadeSites = map.shade_rings.flatMap(ring)
   const take = items => items.splice(Math.floor(random() * items.length), 1)[0]
@@ -322,7 +325,7 @@ function updateFuel(game, emit) {
   }
 }
 
-function shadeMove(game, shade, safe) {
+function shadeMove(game, shade, safe, wanderOnly = false) {
   const { t, sim, player: p, map } = game
   const range = distance(shade.pos, p.pos)
   if (shade.state === 'drain') {
@@ -359,7 +362,8 @@ function shadeMove(game, shade, safe) {
     heading = shade.recoil ?? direction(p.pos, shade.pos)
     amount = t.shade_recoil_distance / t.shade_recoil_ticks
   } else if (shade.state !== 'spawning') {
-    shade.state = !recovered && range <= (shade.state === 'chase' ? t.shade_lose : t.shade_detect) ? 'chase' : 'wander'
+    shade.state = !wanderOnly && !recovered &&
+      range <= (shade.state === 'chase' ? t.shade_lose : t.shade_detect) ? 'chase' : 'wander'
     weak = shade.state === 'wander' && nearest(game.lanterns.filter(lamp => lamp.lit && !isSafe(t, lamp)), shade.pos)
     const target = weak || (shade.state === 'wander' && nearest(game.lanterns.filter(lamp => !lamp.lit), shade.pos))
     heading = shade.state === 'chase' ? direction(shade.pos, p.pos) :
@@ -388,6 +392,12 @@ function shadeMove(game, shade, safe) {
     return false
   }
   return shade.state === 'chase' || shade.state === 'wander'
+}
+
+export function stepBenchmark(game) {
+  game.sim++
+  const safe = game.lanterns.filter(lamp => isSafe(game.t, lamp))
+  for (const shade of game.shades) shadeMove(game, shade, safe, true)
 }
 
 function moveEnemies(game, canTouch, emit) {

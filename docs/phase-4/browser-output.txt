@@ -1,0 +1,3 @@
+PASS Edge 1280x720: 18/22.5px, rebind conflicts, persistence/reset, reduced motion, live pickup/deposit, spawn caption/edge arrow, pause.
+PASS Edge fixture: low fuel/countdown captions, save on loss, leaderboard after reload, no page errors.
+PASS Edge fixtures: wind-warning caption and final dawn result with score-entry form.

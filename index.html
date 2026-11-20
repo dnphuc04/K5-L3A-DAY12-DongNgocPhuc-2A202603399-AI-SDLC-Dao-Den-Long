@@ -17,8 +17,10 @@
     <span class="cooldowns">Lướt <strong id="dash-cd">-</strong> · Tỏa Sáng <strong id="pulse-cd">-</strong></span>
   </aside>
   <span id="direction" hidden>↑</span>
+  <span id="shade-direction" hidden aria-label="Hướng Bóng Mực vừa xuất hiện">↑</span>
+  <div id="captions" role="status" aria-live="polite" hidden></div>
   <div id="hint" role="status"></div>
-  <footer>WASD · Di chuyển / Space · Nhảy / Shift · Lướt / E · Nạp / Q · Tỏa sáng / Esc · Tạm dừng</footer>
+  <footer id="controls-guide"></footer>
   <section id="overlay">
     <div class="panel">
       <h2 id="title">Đảo Đèn Lồng</h2>
@@ -27,9 +29,25 @@
         <label>Âm lượng <input id="volume" type="range" min="0" max="1" step="0.05"></label>
         <label>Độ nhạy chuột <input id="sensitivity" type="range" min="0.1" max="2" step="0.1"></label>
         <label>Bảng màu dễ phân biệt <input id="accessible-palette" type="checkbox"></label>
+        <label>Giảm chuyển động <input id="reduce-motion" type="checkbox"></label>
+        <label>Chữ lớn <input id="large-text" type="checkbox"></label>
+        <fieldset id="key-settings">
+          <legend>Phím điều khiển</legend>
+          <div id="key-bindings"></div>
+          <p id="key-feedback" role="status"></p>
+          <button id="restore-keys" type="button">Khôi phục mặc định</button>
+        </fieldset>
       </div>
+      <form id="score-form" hidden>
+        <label>Tên <input id="score-name" required minlength="3" maxlength="12" pattern="[A-Za-z0-9_]{3,12}"
+          title="3–12 chữ cái không dấu, chữ số hoặc dấu gạch dưới"></label>
+        <button type="submit">Lưu điểm</button>
+      </form>
+      <p id="score-feedback" role="status" hidden></p>
+      <ol id="leaderboard" aria-label="Mười điểm cao nhất" hidden></ol>
       <button id="start">Bắt đầu</button>
       <button id="menu-settings" hidden>Cài đặt</button>
+      <button id="open-leaderboard" hidden>Bảng xếp hạng</button>
       <div id="pause-actions" hidden>
         <button id="restart">Chơi lại Đêm</button>
         <button id="pause-settings">Cài đặt</button>

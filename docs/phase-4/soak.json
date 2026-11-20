@@ -1,0 +1,19 @@
+{
+  "nights": 10,
+  "crashes": 0,
+  "results": [
+    "lost",
+    "lost",
+    "lost",
+    "lost",
+    "lost",
+    "lost",
+    "lost",
+    "lost",
+    "lost",
+    "lost"
+  ],
+  "mem_start_mb": 52.37890625,
+  "mem_end_mb": 58.984375,
+  "duration_s": 0.3405733
+}

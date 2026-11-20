@@ -54,3 +54,30 @@ button:not(#start) { background: #F5F1E613; color: var(--paper); border-color: #
 button:hover { filter: brightness(1.13) }
 @media (max-width: 950px) { .cooldowns { bottom: 106px } #hint { bottom: 156px } }
 @media (max-width: 450px) { .health, .score { font-size: .73rem; padding: 8px; top: 22px } .health { left: 8px } .score { right: 8px } header { left: 8px } .panel { padding: 30px 20px } }
+
+:root { font-size: 18px }
+body, header p, footer, .cooldowns { font-size: 1rem }
+body.large-text { --ui-text: 1.25rem }
+.large-text, .large-text header p, .large-text footer, .large-text .cooldowns { font-size: var(--ui-text) }
+.large-text .clock { font-size: 1.625rem }
+.large-text .panel h2 { font-size: clamp(2.5rem, 8.75vw, 4.1875rem) }
+.reduce-motion .danger { animation: none }
+.panel { max-height: calc(100dvh - 24px); overflow-y: auto }
+.panel:has(#settings-fields:not([hidden])) { width: min(670px, calc(100vw - 30px)); padding-block: 22px }
+#key-settings { text-align: left; border: 1px solid #B6C6DB48; border-radius: 10px; padding: 10px }
+#key-bindings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px }
+#key-bindings button { margin: 0; padding: 6px; overflow-wrap: anywhere }
+#key-feedback { margin: 8px 0; min-height: 1.5em }
+#leaderboard { text-align: left; padding-left: 2.2em }
+#score-name { font: inherit; width: min(230px, 70%); padding: 4px 8px }
+#captions, #shade-direction { position: absolute; z-index: 1; background: #0E1430e8; border: 1px solid #B6C6DB80 }
+#captions { top: 72px; right: 20px; width: max-content; max-width: 45vw; text-align: right;
+  border-radius: 8px; padding: 6px 12px }
+#shade-direction { translate: -50% -50%; padding: 4px 9px; border-radius: 50%; color: #F5F1E6; font-size: 1.35em }
+@media (max-width: 1150px) { .cooldowns { bottom: 110px } #hint { bottom: 158px } }
+@media (max-width: 550px) {
+  #key-bindings { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .hud .score, .hud .health, footer { font-size: .85em }
+  .cooldowns { bottom: 117px; right: 8px; font-size: .9em }
+  #captions { right: 8px; top: 88px; max-width: 60vw }
+}
