@@ -425,16 +425,17 @@ function makeBackdrop(width, height) {
     g.fill()
   }
   g.restore()
-  for (let layer = 0; layer < 3; layer++) {
+  for (let layer = 0; layer < 4; layer++) {
     g.beginPath()
     g.moveTo(0, height)
     for (let x = 0; x < width + 12; x += 12) {
       const u = x / width
-      const wave = Math.sin(u * 15 + layer * 2) * .035 + Math.sin(u * 39 + layer) * .013
-      g.lineTo(x, height * (.45 + layer * .081 + wave))
+      const ridge = Math.abs(Math.sin(u * (12 + layer) + layer * 2)) ** 3
+      const detail = Math.sin(u * 43 + layer) * .012 + Math.cos(u * 94) * .006
+      g.lineTo(x, height * (.31 + layer * .062 - ridge * (.13 - layer * .016) + detail))
     }
     g.lineTo(width, height)
-    g.fillStyle = ['#28385B', '#24364D', valley][layer]
+    g.fillStyle = ['#4E577A', '#3C506C', '#2A4159', valley][layer]
     g.fill()
   }
   for (let i = 0; i < 32; i++) {
@@ -459,10 +460,25 @@ function makeBackdrop(width, height) {
   return image
 }
 
-function groundDisk(cx, cz, y, radius, color, start = 0, arc = tau, inner = 0) {
-  const segments = 48, bands = 7
+const meadowColors = [
+  ['#385E49', '#477153', '#527658', '#42664C', '#3C6854'],
+  ['#315B56', '#3F7063', '#4C7765', '#3D665E', '#365F57'],
+  ['#48554F', '#565F50', '#60664F', '#495F50', '#4F6355']
+]
+const trailColors = ['#666B50', '#5A7060', '#716757']
+const terrainMeshes = new WeakMap()
+
+function trailDistance(x, z, start, end) {
+  const dx = end[0] - start[0], dz = end[1] - start[1]
+  const fraction = Math.max(0, Math.min(1, ((x - start[0]) * dx + (z - start[1]) * dz) / (dx * dx + dz * dz)))
+  return Math.hypot(x - start[0] - fraction * dx, z - start[1] - fraction * dz)
+}
+
+function buildGroundDisk(cx, cz, y, radius, color, start, arc, inner) {
+  const surfaces = [], cliffs = []
+  const segments = 48, bands = 9
   const point = (r, a) => [cx + Math.cos(a) * r, y, cz + Math.sin(a) * r]
-  const greens = ['#2F5D50', '#325F52', '#305A4D', '#2D5C52', '#315F4F']
+  const greens = meadowColors[night - 1]
   const sands = ['#C9B48A', '#CDB88F', '#C4AF85']
   for (let i = 0; i < segments; i++) {
     const left = start + i * arc / segments, right = start + (i + 1) * arc / segments
@@ -471,19 +487,122 @@ function groundDisk(cx, cz, y, radius, color, start = 0, arc = tau, inner = 0) {
       const far = near + (radius - inner) / bands
       const corners = [point(near, left), point(far, left), point(far, right), point(near, right)]
       const palette = color === '#C9B48A' ? sands : greens
-      floorPolygon(corners, palette[Math.floor(noise(i * bands + strip) * palette.length)])
+      const mix = (Math.sin(i * .35 + strip * 1.4) + Math.cos(i * .77 - strip * .81) + 2) / 4
+      const x = (corners[0][0] + corners[2][0]) / 2
+      const z = (corners[0][2] + corners[2][2]) / 2
+      const path = y === 0 && game.map.lanterns.some(([lx, ly, lz]) =>
+        ly === 0 && Math.hypot(lx - cx, lz - cz) < radius &&
+        trailDistance(x, z, [cx, cz], [lx, lz]) < 1.25)
+      surfaces.push([corners, path ? trailColors[night - 1] : palette[Math.min(palette.length - 1, Math.floor(mix * palette.length))]])
     }
     const a = point(radius, left), b = point(radius, right)
     const drop = y ? 3 : 6 + noise(i + 7) * 4
     const inset = radius - (y ? 0 : 2 + noise(i + 12) * 4)
     const lower = [point(inset, left), point(inset, right)]
     lower.forEach(p => { p[1] -= drop })
-    polygon([a, b, lower[1]], i % 3 ? '#334D50' : '#405C5D')
-    polygon([a, lower[1], lower[0]], i % 2 ? '#293D46' : '#354850')
+    const seam = [a, b].map((top, j) => top.map((value, axis) => value * .75 + lower[j][axis] * .25))
+    cliffs.push([[a, b, seam[1], seam[0]], i % 3 ? '#646A59' : '#79816B'])
+    cliffs.push([[seam[0], seam[1], lower[1]], i % 3 ? '#334C57' : '#48606A'])
+    cliffs.push([[seam[0], lower[1], lower[0]], i % 2 ? '#293D49' : '#3D505A'])
+  }
+  return { surfaces, cliffs }
+}
+
+function groundDisk(cx, cz, y, radius, color, start = 0, arc = tau, inner = 0) {
+  if (!terrainMeshes.has(game.map)) terrainMeshes.set(game.map, new Map())
+  const meshes = terrainMeshes.get(game.map)
+  const key = [cx, cz, y, radius, color, start, arc, inner].join(',')
+  if (!meshes.has(key)) meshes.set(key, buildGroundDisk(cx, cz, y, radius, color, start, arc, inner))
+  const { surfaces, cliffs } = meshes.get(key)
+  for (const [vertices, fill] of surfaces) floorPolygon(vertices, fill)
+  for (const [vertices, fill] of cliffs) polygon(vertices, fill)
+}
+
+function makeScenery(map) {
+  const landmarks = [
+    [[-5, 16], [5.5, 18], [-8, 22], [8, 28]],
+    [[-5, 13], [5.1, 14], [58, 8], [76, 16]],
+    [[30, -4], [28, -16], [34, -24], [-30, -14]]
+  ][night - 1].map(([x, z], i) => ({ x, z, seed: i * 4 + night, tall: true, edge: false }))
+  return map.islands.flatMap(([cx, cz, radius], islandIndex) => {
+    const samples = landmarks.filter(({ x, z }) => Math.hypot(x - cx, z - cz) < radius)
+    for (let i = 0; i < 118; i++) {
+      const seed = i + islandIndex * 151 + night * 173
+      const angle = noise(seed) * tau
+      const range = radius * (.25 + noise(seed + 400) * .68)
+      const x = cx + Math.cos(angle) * range, z = cz + Math.sin(angle) * range
+      const tall = i < 23
+      if (map.bridge && Math.abs(z) < 5) continue
+      if (map.lanterns.some(([lx, , lz]) => Math.hypot(lx - x, lz - z) < (tall ? 5 : 2.3))) continue
+      if (map.pads?.some(({ pos: [px, , pz] }) => Math.hypot(px - x, pz - z) < 4)) continue
+      if (map.tier && range < map.tier.outer + 2) continue
+      if (game.ramps.some(ramp => {
+        const along = x * ramp.axis[0] + z * ramp.axis[1]
+        const across = x * ramp.edge[0] + z * ramp.edge[1]
+        return along > ramp.inner - 2 && along < ramp.outer + 2 && Math.abs(across) < ramp.half + 2
+      })) continue
+      if (tall && samples.some(prop => prop.tall && Math.hypot(prop.x - x, prop.z - z) < 4)) continue
+      samples.push({ x, z, seed, tall, edge: range > radius * .81 })
+    }
+    return samples
+  })
+}
+
+function drawScenery(inView) {
+  const { map, player } = game
+  if (sceneryMap !== map) {
+    sceneryMap = map
+    scenery = makeScenery(map)
+  }
+  const distanceLimit = benchmarking ? 40 : 64
+  const foliage = [
+    ['#245846', '#387657', '#51956C'],
+    ['#1C5153', '#307479', '#55938C'],
+    ['#50435D', '#77556F', '#A47D86']
+  ][night - 1]
+  for (const { x, z, seed, tall, edge } of scenery) {
+    const distance = Math.hypot(x - player.pos[0], z - player.pos[2])
+    if (!tall && distance > 25) continue
+    if (!benchmarking && tall && distance < 3.4) continue
+    if ((!benchmarking && distance > distanceLimit) || !inView(x, tall ? 2.4 : .3, z, tall ? 3.4 : .8)) continue
+    const size = noise(seed + 15)
+    if (tall && edge && seed % 3 === 0) {
+      const spread = 1.7 + size * 1.45
+      frustum(x, 0, z, spread, spread * .54, .65 + size, ['#505D58', '#677267', '#7A8476'], 5, false, true)
+      frustum(x, .65 + size, z, spread * .54, .1, .65 + size, ['#536D52', '#728164'], 5, false, true)
+    } else if (tall) {
+      const height = 2.6 + size * 2.8
+      const trunk = ['#594637', '#796146']
+      frustum(x, 0, z, .23 + size * .12, .11, height * .72, trunk, 5, false, true)
+      const lod = distance > distanceLimit * .55
+      if (night === 3 || seed % 3 === 0) {
+        const lean = (noise(seed + 19) - .5) * 1.3
+        orb(x + lean, height * .83, z, height * .33, foliage, false, true)
+        if (!lod) {
+          orb(x + lean - .66, height * .66, z + .32, height * .25, foliage, false, true)
+          orb(x + lean + .65, height * .70, z - .35, height * .23, foliage, false, true)
+        }
+      } else {
+        const skirt = height * .3
+        frustum(x, height * .33, z, skirt, 0, height * .54, foliage, 6, false, true)
+        frustum(x, height * .56, z, skirt * .78, 0, height * .47, foliage, 6, false, true)
+      }
+    } else if (seed % 7 === 0) {
+      frustum(x, 0, z, .28 + size * .52, .12, .18 + size * .55, ['#556462', '#788377'], 5, false, true)
+    } else {
+      const h = .18 + size * .45
+      const color = foliage[seed % foliage.length]
+      polygon([[x - h * .46, .02, z], [x + h * .45, h, z + h * .3], [x + h * .18, .02, z]], color)
+      polygon([[x, .02, z - h * .4], [x - h * .33, h * .76, z], [x, .02, z + h * .37]], foliage[2])
+      if (seed % 5 === 0) {
+        polygon([[x + h * .24, h * .81, z], [x + h * .43, h * 1.03, z + .05],
+          [x + h * .56, h * .87, z + .13]], night === 3 ? '#E6A2B0' : '#D7CC80')
+      }
+    }
   }
 }
 
-function island() {
+function island(inView) {
   const { map } = game
   for (const [cx, cz, radius] of map.islands) groundDisk(cx, cz, 0, radius, '#2F5D50')
   if (map.bridge) {
@@ -491,6 +610,13 @@ function island() {
     for (let x = left; x < right; x++) {
       const end = Math.min(x + .96, right)
       floorPolygon([[x, 0, near], [end, 0, near], [end, 0, far], [x, 0, far]], '#6B4A2F')
+    }
+    for (const z of [near, far]) {
+      for (let x = left + 1; x < right; x += 3) {
+        frustum(x, -.2, z, .105, .08, 1.05, ['#865B44', '#A1704C'], 4, false, true)
+        const end = Math.min(x + 3, right)
+        polygon([[x, .71, z], [end, .71, z], [end, .77, z], [x, .77, z]], '#A28B64')
+      }
     }
   }
   if (map.tier) groundDisk(0, 0, map.tier.y, map.tier.outer, '#2F5D50', 0, Math.PI, map.tier.inner)
@@ -525,27 +651,7 @@ function island() {
     }
     orb(0, y + h, 0, .19, ['#F2C14E', '#FFE9B0'])
   }
-  if (sceneryMap !== map) {
-    sceneryMap = map
-    scenery = map.islands.flatMap(([cx, cz, radius], islandIndex) =>
-      Array.from({ length: 44 }, (_, i) => {
-        const seed = i + islandIndex * 51
-        const angle = noise(seed) * tau, range = radius * (.74 + noise(seed + 400) * .24)
-        return [cx + Math.cos(angle) * range, cz + Math.sin(angle) * range, seed]
-      })).filter(([x, z]) => !(map.bridge && Math.abs(z) < 4 && x > 23 && x < 47))
-  }
-  for (const [x, z, seed] of scenery) {
-    const size = .2 + noise(seed + 15) * .54
-    const color = seed % 3 ? '#496E60' : '#789385'
-    if (seed % 11 === 0) {
-      frustum(x, 0, z, size, size * .66, size * .9, ['#415858', '#526765'], 5)
-      continue
-    }
-    polygon([[x - size * .45, .025, z], [x + size * .2, size, z + size * .35],
-      [x + size * .25, .025, z]], color)
-    polygon([[x, .03, z - size * .36], [x - size * .4, size * .72, z],
-      [x, .03, z + size * .27]], '#547B68')
-  }
+  drawScenery(inView)
 }
 
 function lightSprite(pos, radius, rgb, intensity, additive = true) {
@@ -734,7 +840,7 @@ function draw(orbitElapsed) {
     lightSources.push({ x, y: y + .75, z, rangeSquared: 36,
       power: benchmarking || lessMotion() ? .9 : .9 + Math.sin(game.sim * .14 + x) * .08 })
   }
-  island()
+  island(inView)
   const ambient = tuning.ambient_base + tuning.ambient_progress *
     game.lanterns.filter(lamp => lamp.lit).length / game.lanterns.length
   const glow = ctx.createRadialGradient(width / 2, height * .64, 0, width / 2, height * .64, Math.max(width, height))
