@@ -17,6 +17,7 @@ footer { bottom: 12px; font-size: 12px }
 #hint { bottom: 99px }
 #direction { top: 76px; font-size: 30px }
 .danger { color: #FF5A5F; animation: blink 1s steps(2) infinite }
+.accessible-palette .danger { color: #FFFFFF }
 @keyframes blink { 50% { opacity: .5 } }
 @media (prefers-reduced-motion: reduce) { .danger { animation: none } }
 #overlay { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; background: #0E143088 }
@@ -36,8 +37,8 @@ header p { color: var(--paper); font-size: .78rem; letter-spacing: .12em; text-t
 .clock { min-width: 5.2rem; padding-block: 6px; font-size: 1.3rem; letter-spacing: .07em }
 .light { display: flex; align-items: center; gap: 12px; bottom: 57px; padding: 10px 13px }
 #mote-meter { position: relative; display: block; width: 150px; height: 8px; background: #6F7792; border-radius: 2px; overflow: hidden }
-#mote-meter::before { content: ''; position: absolute; inset: 0 auto 0 0; width: calc(var(--carried, 0) * 10%); background: var(--gold) }
-#mote-meter::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 12px, #0E1430 12px 15px) }
+#mote-meter::before { content: ''; position: absolute; inset: 0 auto 0 0; width: var(--fill, 0%); background: var(--gold) }
+#mote-meter::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 calc(var(--segment, 10%) - 1px), #0E1430 calc(var(--segment, 10%) - 1px) var(--segment, 10%)) }
 .cooldowns { bottom: 57px; font-size: .79rem }
 footer { background: #0E1430a3; color: #F5F1E6; box-shadow: none; line-height: 1.4 }
 #hint { bottom: 112px; color: var(--gold) }

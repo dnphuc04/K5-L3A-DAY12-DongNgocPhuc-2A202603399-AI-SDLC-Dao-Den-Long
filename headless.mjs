@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
-import { createGame, neutral, snapshot, step } from './game.mjs'
+import { carryCapacity, createGame, lanternCost, neutral, snapshot, step } from './game.mjs'
 
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const finite = Number.isFinite
@@ -22,9 +22,11 @@ function framesValid(input) {
 }
 
 function scenarioValid(s, t, map) {
+  const lanternIds = Array.from({ length: map.lanterns.length }, (_, i) => 'L' + (i + 1))
   return isObject(s) &&
     optional(s, 'player', p => isObject(p) && optional(p, 'pos', pos) &&
-      optional(p, 'carried', n => count(n) && n <= t.carry_capacity) &&
+      optional(p, 'successful_lights', count) &&
+      optional(p, 'carried', n => count(n) && n <= carryCapacity(t, p.successful_lights ?? 0)) &&
       optional(p, 'flames', count) && optional(p, 'vel', pos) &&
       ['invuln_ticks', 'dash_cd_ticks', 'pulse_cd_ticks', 'charm_ticks'].every(key => optional(p, key, count))) &&
     optional(s, 'time_left_s', n => finite(n) && n >= 0) &&
@@ -39,13 +41,16 @@ function scenarioValid(s, t, map) {
     optional(s, 'charms', list(item => isObject(item) && optional(item, 'pos', pos) &&
       optional(item, 'id', id) && optional(item, 'available', bool) && optional(item, 'respawn_ticks', count))) &&
     optional(s, 'shades', items => list(x => isObject(x) && pos(x.pos) && optional(x, 'id', id) &&
-      optional(x, 'state', v => ['spawning', 'wander', 'chase', 'recoil', 'stunned'].includes(v)) &&
+      optional(x, 'state', v => ['spawning', 'wander', 'chase', 'recoil', 'stunned', 'drain'].includes(v)) &&
+      optional(x, 'target_lantern_id', v => lanternIds.includes(v)) &&
       optional(x, 'state_ticks_left', count))(items) &&
       unique(items, (x, i) => x.id ?? 'S' + (i + 1))) &&
     optional(s, 'lanterns', items => list(x => isObject(x) &&
-      Array.from({ length: map.lanterns.length }, (_, i) => 'L' + (i + 1)).includes(x.id) &&
+      lanternIds.includes(x.id) &&
       optional(x, 'pos', pos) && optional(x, 'lit', bool) &&
-      optional(x, 'deposited', n => count(n) && n <= t.lantern_cost))(items) && unique(items, x => x.id))
+      optional(x, 'ever_lit', bool) && optional(x, 'fuel', v => finite(v) && v >= 0 && v <= t.fuel_max) &&
+      optional(x, 'deposited', n => count(n) && n <= (x.lit ? t.lantern_cost : lanternCost(t, x))))(items) &&
+      unique(items, x => x.id))
 }
 
 function readJSON(path) {

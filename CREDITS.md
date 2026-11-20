@@ -6,3 +6,4 @@
 
 - Ticket-02 cung cấp sơ đồ và bảng màu chuẩn của ba đảo. Codex mở rộng mô hình bằng Canvas và tổng hợp nhạc nền cùng hiệu ứng bằng Web Audio. Không lấy tệp âm thanh từ nguồn ngoài.
 - Codex bổ sung ánh sáng theo bề mặt, sương theo khoảng cách và hiệu ứng hạt dựa trên sự kiện gameplay. Hình học, ánh sáng và hiệu ứng được tạo trong mã Canvas.
+- Ticket-03 cung cấp quy tắc nhiên liệu và bảng màu dễ phân biệt. Codex triển khai biểu tượng, hình đèn xẹp, vết rách và thanh dầu bằng Canvas và CSS.

@@ -1,4 +1,4 @@
-import { createGame, HZ, nearestLantern, step } from './game.mjs'
+import { carryCapacity, createGame, dawnTarget, HZ, isSafe, lanternCost, nearestLantern, step } from './game.mjs'
 
 const byId = id => document.getElementById(id)
 const canvas = byId('world')
@@ -8,15 +8,16 @@ const start = byId('start')
 const contract = await fetch('./game.contract.json').then(response => response.json())
 const { tuning } = contract
 const names = ['Đảo Bến', 'Đảo Cau', 'Đảo Chuông']
-const advice = ['Đặt ánh sáng vào từng đèn. Khi đèn sáng, Bóng Mực sẽ lùi ra xa.',
+const advice = ['Châm dầu cho đèn để giữ đảo sáng đến bình minh. Bóng Mực tìm đến đèn sắp cạn dầu.',
   'Cầu tre hẹp. Nếu lạc đường, tìm bục nhảy để sang đảo bên kia.',
   'Đi theo dốc lên vành đảo, rồi dùng bục nhảy để tới tháp chuông.']
 let night = 1, total = 0, screen = 'menu', settingsBack = 'menu', pauseEdge = false
-let preferences = { volume: 0.4, sensitivity: 0.5 }
+let preferences = { volume: 0.4, sensitivity: 0.5, accessiblePalette: false }
 try { Object.assign(preferences, JSON.parse(localStorage.getItem('lantern-settings') ?? '{}')) } catch {}
+document.body.classList.toggle('accessible-palette', preferences.accessiblePalette)
 let audio, nextNote = 0, lastSecond = -1, windWarning = 0
 const tones = {
-  mote_picked: [660, 880], lantern_lit: [392, 523, 659], pulse: [220, 440],
+  mote_picked: [660, 880], lantern_lit: [392, 523, 659], refuel: [523, 659], lantern_out: [294, 196], pulse: [220, 440],
   player_hit: [196, 131], jump: [392, 587], dash: [523, 294], won: [523, 659, 784, 1047],
   lost: [392, 294, 196], shade_spawned: [165, 147], countdown: [740], wind_warning: [294, 330, 294]
 }
@@ -83,10 +84,11 @@ function show(next, reason = '') {
   byId('menu-settings').hidden = next !== 'menu'
   const content = {
     menu: ['Đảo Đèn Lồng', 'Cùng Mây thắp sáng ba hòn đảo.', 'Bắt đầu'],
-    intro: ['Đêm ' + night + ' · ' + names[night - 1], 'Ông Đăng: “' + advice[night - 1] + '”', 'Vào đảo'],
+    intro: ['Đêm ' + night + ' · ' + names[night - 1],
+      'Ông Đăng: “Giữ ít nhất ' + dawnTarget(game) + ' đèn sáng tới bình minh. ' + advice[night - 1] + '”', 'Vào đảo'],
     pause: ['Tạm dừng', names[night - 1], 'Tiếp tục'],
     win: ['Đảo đã sáng!', 'Điểm đêm: ' + game.score + ' · Tổng điểm: ' + total, 'Đêm kế tiếp'],
-    loss: ['Đêm đã khép lại', reason === 'dawn' ? 'Trời đã sáng.' : 'Mây đã hết Ngọn Lửa.', 'Chơi lại'],
+    loss: ['Đêm đã khép lại', reason === 'dawn' ? 'Bình minh đến khi đảo chưa đủ đèn sáng.' : 'Mây đã hết Ngọn Lửa.', 'Chơi lại'],
     dawn: ['Bình Minh', 'Cả ba đảo đã sáng. Tổng điểm: ' + total, 'Về menu'],
     settings: ['Cài đặt', '', 'Quay lại']
   }
@@ -111,14 +113,23 @@ function resume() {
 function settings() {
   settingsBack = screen
   for (const key of ['volume', 'sensitivity']) byId(key).value = preferences[key]
+  byId('accessible-palette').checked = preferences.accessiblePalette
   show('settings')
+}
+function savePreferences() {
+  try { localStorage.setItem('lantern-settings', JSON.stringify(preferences)) } catch {}
 }
 for (const key of ['volume', 'sensitivity']) {
   byId(key).addEventListener('input', event => {
     preferences[key] = Number(event.target.value)
-    try { localStorage.setItem('lantern-settings', JSON.stringify(preferences)) } catch {}
+    savePreferences()
   })
 }
+byId('accessible-palette').addEventListener('change', event => {
+  preferences.accessiblePalette = event.target.checked
+  document.body.classList.toggle('accessible-palette', preferences.accessiblePalette)
+  savePreferences()
+})
 byId('menu-settings').onclick = settings
 byId('pause-settings').onclick = settings
 byId('quit').onclick = mainMenu
@@ -440,9 +451,13 @@ function drawBursts() {
   }
 }
 
-function drawLanternStatus({ x, y, size, deposited, lit }) {
-  const cost = tuning.lantern_cost
-  const text = lit ? `${deposited}/${cost} · Đầy` : `${deposited}/${cost}`
+function drawLanternStatus({ x, y, size, lantern, flicker }) {
+  const { lit, deposited, fuelUnits } = lantern
+  const cost = lanternCost(tuning, lantern)
+  const fuel = Math.floor(fuelUnits / HZ)
+  const low = lit && !isSafe(tuning, lantern)
+  const text = lit ? `Dầu ${fuel}/${tuning.fuel_max}${low && preferences.accessiblePalette ? ' ⚠' : ''}` :
+    `${lantern.ever_lit ? 'Thắp lại ' : ''}${deposited}/${cost}`
   ctx.font = `700 ${size}px system-ui, sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
@@ -453,7 +468,8 @@ function drawLanternStatus({ x, y, size, deposited, lit }) {
   ctx.roundRect(left, y - height, width, height, 6)
   ctx.fillStyle = lit ? '#35230D' : '#10182A'
   ctx.fill()
-  ctx.strokeStyle = lit ? '#FFD071' : '#8095AE'
+  const warning = preferences.accessiblePalette ? '#FFFFFF' : '#FF5A5F'
+  ctx.strokeStyle = low ? warning : lit ? '#FFD071' : '#8095AE'
   ctx.lineWidth = 1
   ctx.stroke()
   ctx.fillStyle = lit ? '#FFE19A' : '#F2F5FC'
@@ -461,8 +477,10 @@ function drawLanternStatus({ x, y, size, deposited, lit }) {
   const barWidth = width - 16
   ctx.fillStyle = '#526079'
   ctx.fillRect(left + 8, y - 7, barWidth, 3)
-  ctx.fillStyle = '#FFC557'
-  ctx.fillRect(left + 8, y - 7, barWidth * deposited / cost, 3)
+  ctx.fillStyle = low ? warning : '#FFC557'
+  ctx.globalAlpha = flicker
+  ctx.fillRect(left + 8, y - 7, barWidth * (lit ? fuelUnits / (tuning.fuel_max * HZ) : deposited / cost), 3)
+  ctx.globalAlpha = 1
 }
 
 function paint() {
@@ -576,18 +594,30 @@ function draw() {
     frustum(x, y + 1.98, z, .32, .58, .18, wood, 8)
     const panel = lantern.lit ? ['#FFB347', '#FFE9B0', '#FFD07B'] :
       lantern.deposited > 0 ? ['#AE7537', '#D09648'] : ['#5B5F6E', '#626777']
-    frustum(x, y + 2.16, z, .48, .56, .62, panel, 8, lantern.lit)
-    frustum(x, y + 2.77, z, .69, .62, .09, [gold], 8)
-    frustum(x, y + 2.86, z, .76, .12, .46, ['#263C50', '#304A61'], 8)
-    orb(x, y + 3.35, z, .13, [gold])
+    const paperHeight = lantern.lit ? .62 : .62 * .8
+    const roof = y + 2.16 + paperHeight
+    const low = lantern.lit && !isSafe(tuning, lantern)
+    const flicker = low && !reducedMotion?.matches && game.sim % HZ >= HZ / 2 ? .4 : 1
+    frustum(x, y + 2.16, z, .48, .56, paperHeight,
+      flicker < 1 ? ['#A45C30', '#BD883D'] : panel, 8, lantern.lit)
+    if (!lantern.lit) {
+      const seam = [[x - cos * .12 - sin * .54, roof - .03, z + sin * .12 - cos * .54],
+        [x - sin * .54, roof - paperHeight * .36, z - cos * .54],
+        [x - cos * .08 - sin * .54, roof - paperHeight * .53, z + sin * .08 - cos * .54],
+        [x + cos * .14 - sin * .54, y + 2.2, z - sin * .14 - cos * .54]]
+      polygon(seam, '#151323')
+    }
+    frustum(x, roof, z, .69, .62, .09, [gold], 8)
+    frustum(x, roof + .09, z, .76, .12, .46, ['#263C50', '#304A61'], 8)
+    orb(x, roof + .58, z, .13, [gold])
     for (let side = 0; side < 4; side++) {
       const angle = side * tau / 4
-      frustum(x + Math.cos(angle) * .52, y + 2.18, z + Math.sin(angle) * .52, .035, .035, .6, wood, 4)
+      frustum(x + Math.cos(angle) * .52, y + 2.18, z + Math.sin(angle) * .52, .035, .035, paperHeight - .02, wood, 4)
     }
     if (lantern.lit) {
-      lightSprite([x, y + 2.45, z], 2.65, '255,179,71', .57)
-      lightSprite([x, y + .08, z], 3.65, '255,179,71', .2)
-      polygon(ring(x, y + .035, z, tuning.safe_radius, 48), '#FFC17285', true, 1.3)
+      lightSprite([x, y + 2.45, z], 2.65, '255,179,71', .57 * flicker)
+      lightSprite([x, y + .08, z], 3.65, '255,179,71', .2 * flicker)
+      if (!low) polygon(ring(x, y + .035, z, tuning.safe_radius, 48), '#FFC17285', true, 1.3)
     } else {
       lightSprite([x, y + 2.55, z], .9, '185,208,255', .17)
     }
@@ -595,19 +625,22 @@ function draw() {
     if (marker && marker[0] >= 0 && marker[0] <= width && marker[1] >= 0 && marker[1] <= height) {
       const [x, y, depth] = marker
       const size = Math.max(12, Math.min(17, 12 + 68 / depth))
-      faces.push({ depth, status: { x, y, size, deposited: lantern.deposited, lit: lantern.lit } })
+      faces.push({ depth, status: { x, y, size, lantern, flicker } })
     }
   }
   for (const shade of game.shades) {
     const [x, y, z] = shade.pos
     const height = y + .58 + Math.sin(game.sim / 13 + x) * .13
-    lightSprite([x, height, z], 1.28, '122,60,255', .22, false)
+    const accent = preferences.accessiblePalette ? '#00B3FF' : '#7A3CFF'
+    lightSprite([x, height, z], 1.28, preferences.accessiblePalette ? '0,179,255' : '122,60,255', .22, false)
     frustum(x, height - .55, z, .15, .54, .53, ['#120A1A', '#372459'], 7)
-    orb(x, height, z, .73, shade.state === 'stunned' ? ['#3A3450'] : ['#120A1A', '#7A3CFF'])
+    orb(x, height, z, .73, ['#120A1A', accent], true)
     for (const side of [-1, 1]) {
       orb(x - sin * .55 + cos * side * .23, height + .1, z - cos * .55 - sin * side * .23,
-        .09, ['#e8a8ff', '#c69afa'], true)
+        .09, [accent, '#F5F1E6'], true)
     }
+    if (shade.state === 'stunned') polygon(ring(x, height + .76, z, .45, 12), '#D4DBF2', true)
+    if (shade.state === 'drain') lightSprite([x, height + .4, z], .43, '255,179,71', .45)
   }
   const stride = player[1] >= 0 && game.player.grounded ? Math.sin(game.sim * .2) *
     Math.min(1, Math.hypot(game.player.vel[0], game.player.vel[2]) / tuning.player_speed) : 0
@@ -668,14 +701,17 @@ function draw() {
 
 function updateHud() {
   const player = game.player
+  const capacity = carryCapacity(tuning, player.successfulLights)
   const lit = game.lanterns.filter(lantern => lantern.lit).length
   const seconds = Math.ceil(game.time)
   byId('flames').textContent = player.flames
-  byId('light').textContent = player.carried + '/' + tuning.carry_capacity
-  byId('mote-meter').style.setProperty('--carried', player.carried)
-  byId('light').setAttribute('aria-label', player.carried + ' trên ' + tuning.carry_capacity + ' đom đóm')
+  byId('light').textContent = player.carried + '/' + capacity
+  byId('mote-meter').style.setProperty('--fill', 100 * player.carried / capacity + '%')
+  byId('mote-meter').style.setProperty('--segment', 100 / capacity + '%')
+  byId('light').setAttribute('aria-label', player.carried + ' trên ' + capacity + ' đom đóm')
   byId('lanterns').textContent = lit + '/' + game.lanterns.length
-  byId('clock').textContent = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0')
+  byId('clock').textContent = (preferences.accessiblePalette && seconds <= 30 ? '⚠ ' : '') +
+    Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0')
   byId('clock').classList.toggle('danger', seconds <= 30)
   byId('score').textContent = game.score
   const cooldown = value => value > game.sim ? ((value - game.sim) / HZ).toFixed(1) + 's' : 'Sẵn sàng'
@@ -683,7 +719,8 @@ function updateHud() {
   byId('pulse-cd').textContent = cooldown(player.pulseCd)
   const target = nearestLantern(game, true)
   const near = target && Math.hypot(target.pos[0] - player.pos[0], target.pos[2] - player.pos[2]) <= tuning.interact_radius
-  byId('hint').textContent = active && near ? 'E — Nạp ánh sáng (' + target.deposited + '/' + tuning.lantern_cost + ')' : ''
+  byId('hint').textContent = active && near ? (target.lit ? 'E — Châm dầu' :
+    'E — Nạp đom đóm (' + target.deposited + '/' + lanternCost(tuning, target) + ')') : ''
   if (active && seconds !== lastSecond && seconds <= 10 && seconds > 0) sound(tones.countdown)
   lastSecond = seconds
 }

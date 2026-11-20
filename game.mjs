@@ -10,6 +10,14 @@ const advance = ([x, y, z], [dx, dz], amount) => [x + dx * amount, y, z + dz * a
 const seconds = ticks => Math.max(0, ticks) / HZ
 const ticks = duration => Math.round(duration * HZ)
 const idOrder = (a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1)) || a.id.localeCompare(b.id)
+const nearest = (items, pos) =>
+  items.sort((a, b) => distance(a.pos, pos) - distance(b.pos, pos) || idOrder(a, b))[0]
+export const lanternCost = (t, lamp) => lamp.ever_lit ? t.relight_cost : t.lantern_cost
+export const carryCapacity = (t, successfulLights) =>
+  Math.min(t.capacity_max, t.carry_capacity + t.capacity_per_light * successfulLights)
+export const dawnTarget = game => Math.ceil(game.t.win_ratio * game.lanterns.length)
+export const isSafe = (t, lamp) => lamp.lit && lamp.fuelUnits >= t.low_fuel_threshold * HZ
+const fuelOutput = lamp => Math.round(lamp.fuelUnits * 10 / HZ) / 10
 const ring = ([x, y, z, radius, count, start, stride = 360 / count]) =>
   Array.from({ length: count }, (_, i) => advance([x, y, z],
     [Math.cos((start + i * stride) * radians), Math.sin((start + i * stride) * radians)], radius))
@@ -54,8 +62,11 @@ export function createGame(contract, seed, scenario = {}, night = 1) {
   const lanterns = map.lanterns.map((pos, i) => {
     const id = 'L' + (i + 1)
     const patch = scenario.lanterns?.find(item => item.id === id) ?? {}
-    const deposited = patch.deposited ?? (patch.lit ? t.lantern_cost : 0)
-    return { id, pos: [...pos], deposited, lit: patch.lit ?? deposited === t.lantern_cost, ...patch }
+    const cost = lanternCost(t, patch)
+    const lit = patch.lit ?? (patch.deposited ?? 0) >= cost
+    const fuelUnits = lit ? Math.round((patch.fuel ?? t.fuel_max) * HZ) : 0
+    return { id, pos: [...(patch.pos ?? pos)], deposited: patch.deposited ?? (lit ? cost : 0),
+      lit, fuelUnits, ever_lit: lit || (patch.ever_lit ?? false), relit_count: 0 }
   })
   const initial = [...moteSites]
   const motes = (scenario.motes ?? (scenario.random_motes === false ? [] :
@@ -83,7 +94,8 @@ export function createGame(contract, seed, scenario = {}, night = 1) {
     t, map, night, random, take, moteSites, shadeSites, ramps: ramps(map), lanterns, motes, shades, drifters, charms,
     player: { pos: [...(p.pos ?? [0, 0, 0])], vel: [...(p.vel ?? [0, 0, 0])], carried: p.carried ?? 0,
       flames: p.flames ?? t.flames, face: [0, 1], invuln: p.invuln_ticks ?? 0, dashCd: p.dash_cd_ticks ?? 0,
-      pulseCd: p.pulse_cd_ticks ?? 0, charm: p.charm_ticks ?? 0, dashUntil: 0, respawn: 0 },
+      pulseCd: p.pulse_cd_ticks ?? 0, charm: p.charm_ticks ?? 0, dashUntil: 0, respawn: 0,
+      successfulLights: p.successful_lights ?? 0 },
     initialTime, time: initialTime, score: 0, tick: 0, sim: 0, state: 'playing', previous: neutral,
     randomMotes: scenario.random_motes !== false, randomShades: scenario.random_shades !== false,
     randomDrifters: scenario.random_drifters !== false, windEnabled: night === 3 && scenario.wind_enabled !== false,
@@ -102,9 +114,9 @@ function nextId(game, prefix, items) {
 }
 
 export function nearestLantern(game, reachable = false) {
-  const p = game.player.pos
-  return game.lanterns.filter(item => !item.lit && (!reachable || Math.abs(item.pos[1] - p[1]) <= game.t.interact_radius))
-    .sort((a, b) => distance(a.pos, p) - distance(b.pos, p) || idOrder(a, b))[0]
+  const { t, player: { pos } } = game
+  return nearest(game.lanterns.filter(lamp => (!lamp.lit || lamp.fuelUnits < t.fuel_max * HZ) &&
+    (!reachable || Math.abs(lamp.pos[1] - pos[1]) <= t.interact_radius)), pos)
 }
 
 function movePlayer(game, input, pressed, emit) {
@@ -190,9 +202,10 @@ function movePlayer(game, input, pressed, emit) {
 
 function collect(game, emit) {
   const { t, player: p, sim } = game
+  const capacity = carryCapacity(t, p.successfulLights)
   const inReach = pos => distance(pos, p.pos) <= t.pickup_radius && Math.abs(pos[1] - p.pos[1]) <= t.pickup_height
   game.motes = game.motes.filter(mote => {
-    if (sim < mote.availableAt || p.carried >= t.carry_capacity || !inReach(mote.pos)) return true
+    if (sim < mote.availableAt || p.carried >= capacity || !inReach(mote.pos)) return true
     emit('mote_picked', { carried: ++p.carried })
     return false
   })
@@ -209,17 +222,32 @@ function collect(game, emit) {
 function deposit(game, emit) {
   const { t, player: p } = game
   const lamp = nearestLantern(game, true)
-  if (!lamp || !p.carried || distance(lamp.pos, p.pos) > t.interact_radius ||
-      Math.abs(lamp.pos[1] - p.pos[1]) > t.interact_radius) return
-  const amount = Math.min(p.carried, t.lantern_cost - lamp.deposited)
+  if (!lamp || !p.carried || distance(lamp.pos, p.pos) > t.interact_radius) return
+  if (lamp.lit) {
+    const missing = t.fuel_max * HZ - lamp.fuelUnits
+    const amount = Math.min(p.carried, Math.ceil(missing / (t.fuel_per_mote * HZ)))
+    lamp.fuelUnits += Math.min(missing, amount * t.fuel_per_mote * HZ)
+    p.carried -= amount
+    game.score += amount * t.score.per_mote
+    emit('refuel', { lantern_id: lamp.id, amount, fuel: fuelOutput(lamp) })
+    return
+  }
+  const cost = lanternCost(t, lamp)
+  const amount = Math.min(p.carried, cost - lamp.deposited)
+  if (amount <= 0) return
   p.carried -= amount
   lamp.deposited += amount
   game.score += amount * t.score.per_mote
   emit('deposit', { lantern_id: lamp.id, amount, deposited: lamp.deposited })
-  if (lamp.deposited < t.lantern_cost) return
+  if (lamp.deposited < cost) return
+  const relight = lamp.ever_lit
   lamp.lit = true
-  game.score += t.score.per_lantern
-  emit('lantern_lit', { lantern_id: lamp.id })
+  lamp.ever_lit = true
+  lamp.fuelUnits = t.fuel_max * HZ
+  lamp.relit_count += Number(relight)
+  p.successfulLights++
+  game.score += relight ? t.score.per_relight : t.score.per_lantern
+  emit('lantern_lit', { lantern_id: lamp.id, relight })
 }
 
 function drop(game, pos, count, scattered) {
@@ -244,10 +272,12 @@ function pulse(game, emit) {
   const stunnedIds = []
   for (const shade of game.shades) {
     if (!near(shade.pos)) continue
+    game.score += shade.state === 'drain' ? t.score.per_drain_stun : t.score.per_stun
     shade.state = 'stunned'
+    shade.target_lantern_id = undefined
     shade.until = sim + ticks(t.pulse_stun_s)
     shade.pushUntil = sim + t.pulse_push_ticks
-    shade.push = direction(p.pos, shade.pos)
+    shade.push = distance(p.pos, shade.pos) === 0 ? [1, 0] : direction(p.pos, shade.pos)
     stunnedIds.push(shade.id)
   }
   for (const drifter of game.drifters) {
@@ -262,27 +292,64 @@ function pulse(game, emit) {
       drifter.until = sim + t.drifter_drop_ticks
     }
   }
-  game.score += stunnedIds.length * t.score.per_stun
   emit('pulse', { stunned_ids: stunnedIds })
+}
+
+function updateFuel(game, emit) {
+  const { t, sim } = game
+  for (const lamp of game.lanterns) {
+    if (!lamp.lit) continue
+    const draining = game.shades.filter(shade => shade.state === 'drain' &&
+      shade.target_lantern_id === lamp.id && !isSafe(t, lamp) &&
+      distance(lamp.pos, shade.pos) <= t.drain_radius).sort(idOrder)
+    lamp.fuelUnits = Math.max(0, lamp.fuelUnits - t.fuel_decay_per_s - draining.length * t.drain_per_s)
+    if (sim % HZ === 0) {
+      for (const shade of draining) {
+        emit('fuel_drain', { lantern_id: lamp.id, shade_id: shade.id, fuel: fuelOutput(lamp) })
+      }
+    }
+    if (lamp.fuelUnits > 0) continue
+    lamp.lit = false
+    lamp.deposited = 0
+    emit('lantern_out', { lantern_id: lamp.id })
+  }
+  for (const shade of game.shades) {
+    if (shade.state !== 'drain') continue
+    const lamp = game.lanterns.find(lamp => lamp.id === shade.target_lantern_id)
+    if (lamp?.lit && !isSafe(t, lamp) && distance(lamp.pos, shade.pos) <= t.drain_radius) continue
+    shade.state = 'wander'
+    shade.target_lantern_id = undefined
+  }
 }
 
 function shadeMove(game, shade, safe) {
   const { t, sim, player: p, map } = game
-  const inside = safe.find(lamp => distance(lamp.pos, shade.pos) < t.safe_radius - 1e-8)
+  const range = distance(shade.pos, p.pos)
+  if (shade.state === 'drain') {
+    const target = game.lanterns.find(lamp => lamp.id === shade.target_lantern_id)
+    const valid = target?.lit && !isSafe(t, target) && distance(target.pos, shade.pos) <= t.drain_radius
+    if (valid && range > t.drain_chase_radius) return false
+    shade.state = valid ? 'chase' : 'wander'
+    shade.target_lantern_id = undefined
+  }
+  const exiting = game.lanterns.find(lamp => lamp.lit && lamp.id === shade.exitLamp && sim <= shade.exitEnd)
+  const inside = [exiting, ...safe].find(lamp => lamp && distance(lamp.pos, shade.pos) < t.safe_radius - 1e-8)
   if (inside) {
     const range = distance(inside.pos, shade.pos)
     if (shade.exitLamp !== inside.id) {
       shade.exitLamp = inside.id
       shade.exitEnd = sim + t.safe_exit_ticks - 1
     }
-    shade.pos = advance(shade.pos, direction(inside.pos, shade.pos),
+    const outward = range === 0 ? [1, 0] : direction(inside.pos, shade.pos)
+    shade.pos = advance(shade.pos, outward,
       (t.safe_radius - range) / Math.max(1, shade.exitEnd - sim + 1))
     return false
   }
   shade.exitLamp = null
   if (shade.state === 'spawning' && sim >= shade.until) shade.state = 'wander'
-  if ((shade.state === 'stunned' || shade.state === 'recoil') && sim >= shade.until) shade.state = 'wander'
-  let heading, amount
+  const recovered = shade.state === 'stunned' && sim >= shade.until
+  if (recovered || (shade.state === 'recoil' && sim >= shade.until)) shade.state = 'wander'
+  let heading, amount, weak
   if (shade.state === 'stunned') {
     if (sim < shade.pushUntil) {
       heading = shade.push
@@ -292,11 +359,14 @@ function shadeMove(game, shade, safe) {
     heading = shade.recoil ?? direction(p.pos, shade.pos)
     amount = t.shade_recoil_distance / t.shade_recoil_ticks
   } else if (shade.state !== 'spawning') {
-    const range = distance(shade.pos, p.pos)
-    shade.state = range <= (shade.state === 'chase' ? t.shade_lose : t.shade_detect) ? 'chase' : 'wander'
-    heading = shade.state === 'chase' ? direction(shade.pos, p.pos) : [Math.cos(sim / HZ), Math.sin(sim / HZ)]
+    shade.state = !recovered && range <= (shade.state === 'chase' ? t.shade_lose : t.shade_detect) ? 'chase' : 'wander'
+    weak = shade.state === 'wander' && nearest(game.lanterns.filter(lamp => lamp.lit && !isSafe(t, lamp)), shade.pos)
+    const target = weak || (shade.state === 'wander' && nearest(game.lanterns.filter(lamp => !lamp.lit), shade.pos))
+    heading = shade.state === 'chase' ? direction(shade.pos, p.pos) :
+      target ? direction(shade.pos, target.pos) : [Math.cos(sim / HZ), Math.sin(sim / HZ)]
     amount = (map.shade_speed ?? t.shade_speed) / HZ
     if (shade.state === 'chase') amount = Math.min(amount, range)
+    if (target) amount = Math.min(amount, Math.max(0, distance(shade.pos, target.pos) - (weak ? t.drain_radius : 0)))
   }
   if (heading) {
     const next = advance(shade.pos, heading, amount)
@@ -312,12 +382,17 @@ function shadeMove(game, shade, safe) {
     } else if (Number.isFinite(ground.y) && ground.y <= shade.pos[1] + t.pickup_height) shade.pos = next
     else if (shade.state === 'stunned') shade.pushUntil = sim
   }
+  if (!recovered && weak && distance(weak.pos, shade.pos) <= t.drain_radius + 1e-8) {
+    shade.state = 'drain'
+    shade.target_lantern_id = weak.id
+    return false
+  }
   return shade.state === 'chase' || shade.state === 'wander'
 }
 
 function moveEnemies(game, canTouch, emit) {
   const { t, sim, player: p } = game
-  const safe = game.lanterns.filter(lamp => lamp.lit)
+  const safe = game.lanterns.filter(lamp => isSafe(t, lamp))
   const hitters = game.shades.filter(shade => shadeMove(game, shade, safe)).sort(idOrder)
   game.drifters = game.drifters.filter(drifter => drifter.state !== 'removed')
   for (const drifter of game.drifters) {
@@ -368,7 +443,7 @@ function spawn(game, emit) {
   if (game.randomShades && elapsed >= 0 && elapsed % map.shade_interval === 0) {
     const sites = game.shadeSites.filter(site => distance(site, p.pos) >= t.shade_min_spawn &&
       !game.shades.some(shade => distance(shade.pos, site) < t.shade_hit_radius) &&
-      !game.lanterns.some(lamp => lamp.lit && distance(lamp.pos, site) < t.safe_radius))
+      !game.lanterns.some(lamp => isSafe(t, lamp) && distance(lamp.pos, site) < t.safe_radius))
     const count = Math.min(elapsed === 0 ? 2 : 1, sites.length, map.shade_cap - game.shades.length)
     for (let i = 0; i < count; i++) {
       const id = nextId(game, 'S', game.shades)
@@ -406,6 +481,7 @@ export function step(game, input = neutral, visualEvents = false) {
   const { t, player: p } = game
   if (sim === 1) emit('night_start', { night: game.night })
   game.time = Math.max(0, game.initialTime - sim / HZ)
+  updateFuel(game, emit)
   if (game.windEnabled) {
     const phase = sim % ticks(t.wind_period)
     if (phase === ticks(t.wind_period - t.wind_warning)) {
@@ -424,11 +500,15 @@ export function step(game, input = neutral, visualEvents = false) {
   }
   moveEnemies(game, present, emit)
   spawn(game, emit)
-  const reason = p.flames <= 0 ? 'no_flames' : game.lanterns.every(lamp => lamp.lit) ? 'all_lit' :
-    game.time <= 0 ? 'dawn' : null
+  const lit = game.time <= 0 ? game.lanterns.filter(lamp => lamp.lit) : []
+  const reason = p.flames <= 0 ? 'no_flames' : game.time <= 0 ?
+    (lit.length >= dawnTarget(game) ? 'dawn_survived' : 'dawn') : null
   if (reason) {
-    game.state = reason === 'all_lit' ? 'won' : 'lost'
-    if (game.state === 'won') game.score += Math.floor(game.time) * t.score.per_second_left + p.flames * t.score.per_flame_left
+    game.state = reason === 'dawn_survived' ? 'won' : 'lost'
+    if (game.state === 'won') {
+      game.score += p.flames * t.score.per_flame_left
+      for (const lamp of lit) game.score += t.score.per_lit_at_dawn + Math.floor(lamp.fuelUnits / HZ)
+    }
     emit('game_over', { result: game.state, reason })
   }
   game.previous = input
@@ -440,8 +520,11 @@ export function snapshot(game) {
   return { type: 'snapshot', tick: game.tick, sim_tick: sim, state: game.state, night: game.night,
     time_left_s: game.time, wind: game.wind, player: { pos: p.pos, vel: p.vel, carried: p.carried,
       flames: p.flames, grounded: p.grounded, invuln: sim < p.invuln, dash_cd_s: seconds(p.dashCd - sim),
-      pulse_cd_s: seconds(p.pulseCd - sim), charm_s: seconds(p.charm - sim) },
-    lanterns: game.lanterns, shades: game.shades.map(({ id, pos, state }) => ({ id, pos, state })),
+      pulse_cd_s: seconds(p.pulseCd - sim), charm_s: seconds(p.charm - sim),
+      capacity: carryCapacity(game.t, p.successfulLights) },
+    lanterns: game.lanterns.map(({ id, pos, deposited, lit, ever_lit, relit_count, fuelUnits }) =>
+      ({ id, pos, deposited, lit, fuel: fuelOutput({ fuelUnits }), ever_lit, relit_count })),
+    shades: game.shades.map(({ id, pos, state }) => ({ id, pos, state })),
     motes_active: game.motes.length, motes: game.motes.map(({ id, pos, kind, expires }) =>
       ({ id, pos, kind, ttl_s: Number.isFinite(expires) ? seconds(expires - sim) : null })),
     drifters: game.drifters.map(({ id, pos, state, stolen }) => ({ id, pos, state, stolen })),

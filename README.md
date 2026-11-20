@@ -10,20 +10,20 @@ Cần Node.js 20 trở lên. Chạy `npm start` và mở [localhost:8080](http:/
 | ← → hoặc giữ chuột trái rồi kéo | Xoay camera |
 | Space | Nhảy |
 | Shift | Lướt |
-| E | Nạp đom đóm vào đèn gần nhất |
+| E | Nạp đom đóm, thắp lại hoặc châm dầu cho đèn gần nhất nhận được |
 | Q | Tỏa Sáng, tốn 3 đom đóm |
 | Esc hoặc P | Tạm dừng hoặc tiếp tục |
 
-Thắp 5 đèn ở Đảo Bến, 6 đèn ở Đảo Cau và 7 đèn ở Đảo Chuông. Bùa Gió tăng tốc chạy và bỏ hồi chiêu lướt trong 10 giây. Nhặt tối đa 10 đom đóm và nạp đủ 10 vào mỗi đèn. Mỗi đom đóm **nạp** được 10 điểm, mỗi đèn sáng được 100 điểm và mỗi Bóng Mực trúng Tỏa Sáng được 5 điểm. Khi thắng một Đêm, cộng 2 điểm mỗi giây nguyên còn lại và 50 điểm mỗi Ngọn Lửa còn lại. Tổng điểm Bình Minh chỉ cộng các Đêm đã thắng.
+Giữ Mây còn Ngọn Lửa và đủ đèn sáng tới bình minh. Đảo Bến cần 3/5 đèn, Đảo Cau cần 4/6 và Đảo Chuông cần 5/7. Mỗi đèn cần 10 đom đóm để thắp lần đầu và 5 để thắp lại. Châm dầu bằng đom đóm để đèn duy trì vùng an toàn. Khi dầu dưới 30, đèn nhấp nháy, mất vùng an toàn và có thể bị Bóng Mực hút dầu. Sức chứa tăng từ 10 lên tối đa 20 khi thắp đèn. Trong **Cài đặt**, có thể bật **Bảng màu dễ phân biệt**.
 
-## Kiểm tra Phase 2
+## Kiểm tra Phase 3
 
 ```sh
 npm test
-node headless.mjs --seed 20 --night 3 --ticks 21600 --out run.local.jsonl
+node headless.mjs --seed 20 --night 3 --ticks 18000 --out run.local.jsonl
 ```
 
-[Contract v1.1](game.contract.json) khai báo thông số và bản đồ dùng chung cho game và CLI. Xem [giả định, kết quả test và số đo](docs/phase-2/README.md). [Bằng chứng Phase 1](docs/phase-1/README.md) ứng với tag `phase-1`.
+[Contract v1.2](game.contract.json) khai báo thông số và bản đồ dùng chung cho game và CLI. Xem [quyết định thiết kế, thay đổi contract và bằng chứng](docs/phase-3/README.md). Bằng chứng cũ nằm ở [Phase 1](docs/phase-1/README.md) và [Phase 2](docs/phase-2/README.md).
 
 ### Sáng tạo của tôi
 

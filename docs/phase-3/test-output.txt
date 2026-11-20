@@ -1,0 +1,38 @@
+
+> test
+> node --test
+
+✔ tick zero, sparse inputs, camera rotation, diagonal normalization and jump (58.5248ms)
+✔ pickup radius and carry limit (94.3434ms)
+✔ partial deposit, rising edge and final lantern without early victory (84.5626ms)
+✔ pulse costs light, pushes within radius and observes cooldown and stun timing (74.9487ms)
+✔ a lit lantern protects the player and keeps chasing shades outside its radius (63.4135ms)
+✔ collision, invulnerability and defeat from zero flames (66.1609ms)
+✔ dawn terminates at the exact tick and emits end as the final row (57.4636ms)
+✔ same seed and inputs produce byte-identical output (233.0887ms)
+✔ malformed scenario and duplicate ticks exit 2 with stderr (127.5088ms)
+✔ standard map, spawn clocks and duration for all three nights (190.9512ms)
+✔ pause freezes sim clock, buffs, TTL and cooldowns; dash lasts 12 sim ticks (60.9156ms)
+✔ dash uses facing, travels 2.8 m in 12 ticks and does not retrigger while held (54.2296ms)
+✔ fall ignores immunity, loses carried motes once and respawns on schedule (54.5304ms)
+✔ drifter steals before shade hit, and pulse returns stolen motes (61.6668ms)
+✔ wind charm increases run speed and allows a second dash without cooldown (56.6914ms)
+✔ standard jump pads land on the second island and upper disk (114.6994ms)
+✔ night 3 starts on the lower floor and wind changes speed only during its window (69.7896ms)
+✔ last flame overrides a simultaneous final lantern and dawn (119.4443ms)
+✔ night 3 ramps reach the upper ring without jumping (119.5765ms)
+✔ fuel expires before interaction and relighting uses five motes, increasing capacity (55.853ms)
+✔ refuel uses ceiling, caps the tank, respects tie break and does not grow capacity (62.368ms)
+✔ wander targets the nearest weak lantern with ties broken by ID and drains stack (57.1478ms)
+✔ pulse gives 15 points for a drainer and five for another shade (59.2068ms)
+✔ pausing freezes lamp fuel; a drainer switches to chase when the player reaches six meters (55.9127ms)
+✔ threshold of 30 is safe and refuel ejects shades from the restored radius (112.8238ms)
+✔ dawn checks the updated fuel and applies the threshold and bonus on every night (295.7828ms)
+ℹ tests 26
+ℹ suites 0
+ℹ pass 26
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2537.4246
