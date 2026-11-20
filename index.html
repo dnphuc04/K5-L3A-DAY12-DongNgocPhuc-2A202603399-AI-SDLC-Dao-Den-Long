@@ -7,25 +7,33 @@
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-  <canvas id="world" aria-label="Đảo Bến"></canvas>
-  <header>
-    <p>ĐÊM 1 · ĐẢO BẾN</p>
-    <h1>Đảo Đèn Lồng</h1>
-  </header>
+  <canvas id="world" aria-label="Ba hòn đảo"></canvas>
+  <header><p id="night-label"></p></header>
   <aside class="hud" aria-label="Trạng thái">
-    <span>Lửa <strong id="flames">—</strong></span>
-    <span>Ánh sáng <strong id="light">—</strong></span>
-    <span>Đèn <strong id="lanterns">—</strong></span>
-    <span>Thời gian <strong id="clock">—</strong></span>
-    <span>Điểm <strong id="score">—</strong></span>
+    <span class="health">Ngọn Lửa <strong id="flames">-</strong></span>
+    <strong id="clock" class="clock">-</strong>
+    <span class="score">Đèn <strong id="lanterns">-</strong> · Điểm <strong id="score">-</strong></span>
+    <span class="light"><span id="mote-meter" aria-hidden="true"></span><strong id="light">-</strong></span>
+    <span class="cooldowns">Lướt <strong id="dash-cd">-</strong> · Tỏa Sáng <strong id="pulse-cd">-</strong></span>
   </aside>
+  <span id="direction" hidden>↑</span>
   <div id="hint" role="status"></div>
-  <footer>WASD / ↑↓ · Di chuyển　 ← → · Xoay　 Space · Nhảy　 E · Nạp đèn　 Q · Tỏa sáng</footer>
+  <footer>WASD · Di chuyển / Space · Nhảy / Shift · Lướt / E · Nạp / Q · Tỏa sáng / Esc · Tạm dừng</footer>
   <section id="overlay">
-    <div>
-      <h2 id="title">Thắp sáng Đảo Bến</h2>
-      <p id="message">Gom đom đóm, thắp cả năm đèn lồng và dùng ánh sáng để xua Bóng Mực.</p>
+    <div class="panel">
+      <h2 id="title">Đảo Đèn Lồng</h2>
+      <p id="message"></p>
+      <div id="settings-fields" hidden>
+        <label>Âm lượng <input id="volume" type="range" min="0" max="1" step="0.05"></label>
+        <label>Độ nhạy chuột <input id="sensitivity" type="range" min="0.1" max="2" step="0.1"></label>
+      </div>
       <button id="start">Bắt đầu</button>
+      <button id="menu-settings" hidden>Cài đặt</button>
+      <div id="pause-actions" hidden>
+        <button id="restart">Chơi lại Đêm</button>
+        <button id="pause-settings">Cài đặt</button>
+        <button id="quit">Về menu</button>
+      </div>
     </div>
   </section>
   <script type="module" src="./view.mjs"></script>

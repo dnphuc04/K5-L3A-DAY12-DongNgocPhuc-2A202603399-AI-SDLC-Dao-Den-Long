@@ -1,21 +1,55 @@
 * { box-sizing: border-box }
-body { margin: 0; color: #ffedcf; background: #100e23; font: 16px system-ui, sans-serif }
+[hidden] { display: none !important }
+body { margin: 0; color: #F5F1E6; background: #0E1430; font: 16px system-ui, sans-serif }
 canvas { display: block; width: 100%; height: 100dvh }
-header, .hud, footer, #hint { position: absolute; z-index: 1 }
-header { top: 22px; left: 30px }
-header p { color: #ffbc78; letter-spacing: .17em; margin: 0 }
-h1, h2 { font-family: Georgia, serif; margin: 5px 0; font-weight: 500 }
-h1 { font-size: clamp(30px, 5vw, 55px) }
-.hud { top: 28px; right: 28px; display: flex; flex-wrap: wrap; gap: 9px }
-.hud span, footer, #hint:not(:empty) { background: #161225df; border: 1px solid #ffd29a4d; border-radius: 10px; padding: 9px 12px }
-strong { color: #ffc172; margin-left: 3px }
-footer, #hint { left: 50%; transform: translateX(-50%); text-align: center; width: max-content; max-width: 90vw }
-footer { bottom: 20px }
-#hint { bottom: 76px }
-#overlay { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; background: #0a081655 }
-#overlay[hidden] { display: none }
-#overlay div { margin: 20px; max-width: 460px; text-align: center; padding: 32px; border-radius: 20px; border: 1px solid #ffc1727a; background: #21172fee }
-h2 { font-size: 38px }
-button { padding: 12px 25px; border: 0; border-radius: 8px; background: #ffc172; color: #291321; font: inherit; font-weight: 700; cursor: pointer }
-button:focus-visible { outline: 3px solid white; outline-offset: 3px }
-@media (max-width: 850px) { .hud { top: 100px; left: 24px; right: 20px } }
+header, .hud > *, footer, #hint, #direction { position: absolute; z-index: 1 }
+header { top: 54px; left: 22px }
+header p { color: #F2C14E; margin: 0 }
+.hud > *, footer, #hint:not(:empty) { background: #0E1430df; border: 1px solid #F2C14E66; border-radius: 10px; padding: 8px 12px }
+strong, #direction { color: #F2C14E }
+.health { top: 12px; left: 20px }
+.score { top: 12px; right: 20px }
+.clock, .light, footer, #hint, #direction { left: 50%; translate: -50% 0; text-align: center; width: max-content; max-width: 93vw }
+.clock { top: 12px; font-variant-numeric: tabular-nums }
+.light { bottom: 53px }
+.cooldowns { bottom: 12px; right: 20px }
+footer { bottom: 12px; font-size: 12px }
+#hint { bottom: 99px }
+#direction { top: 76px; font-size: 30px }
+.danger { color: #FF5A5F; animation: blink 1s steps(2) infinite }
+@keyframes blink { 50% { opacity: .5 } }
+@media (prefers-reduced-motion: reduce) { .danger { animation: none } }
+#overlay { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; background: #0E143088 }
+.panel { margin: 20px; max-width: 480px; text-align: center; padding: 32px; border-radius: 20px; border: 1px solid #F2C14E; background: #1B2350f5 }
+h2 { font: 500 38px Georgia, serif; margin: 5px 0 }
+button { margin: 4px; padding: 10px 16px; border: 0; border-radius: 8px; background: #F2C14E; color: #0E1430; font: inherit; font-weight: 700; cursor: pointer }
+button:focus-visible { outline: 3px solid #F5F1E6; outline-offset: 3px }
+label { display: flex; justify-content: space-between; gap: 16px; margin-block: 10px }
+@media (max-width: 1000px) { .cooldowns { bottom: 100px; right: 12px; font-size: 12px } }
+
+:root { color-scheme: dark; --ink: #0E1430; --gold: #F2C14E; --paper: #F5F1E6 }
+body { overflow: hidden }
+header { top: 63px; left: 24px }
+header p { color: var(--paper); font-size: .78rem; letter-spacing: .12em; text-transform: uppercase; text-shadow: 0 2px 8px #000 }
+.hud > *, footer, #hint:not(:empty) { background: #0E1430ba; border-color: #B6C6DB38; box-shadow: 0 5px 18px #080D2030 }
+.health, .score, .clock { top: 18px }
+.clock { min-width: 5.2rem; padding-block: 6px; font-size: 1.3rem; letter-spacing: .07em }
+.light { display: flex; align-items: center; gap: 12px; bottom: 57px; padding: 10px 13px }
+#mote-meter { position: relative; display: block; width: 150px; height: 8px; background: #6F7792; border-radius: 2px; overflow: hidden }
+#mote-meter::before { content: ''; position: absolute; inset: 0 auto 0 0; width: calc(var(--carried, 0) * 10%); background: var(--gold) }
+#mote-meter::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 12px, #0E1430 12px 15px) }
+.cooldowns { bottom: 57px; font-size: .79rem }
+footer { background: #0E1430a3; color: #F5F1E6; box-shadow: none; line-height: 1.4 }
+#hint { bottom: 112px; color: var(--gold) }
+#direction { top: 72px; line-height: 1; padding: 8px 12px; border-radius: 100%; background: #0E1430ba; border: 1px solid #F2C14E55 }
+#overlay { background: radial-gradient(ellipse at 48% 54%, #0E143011 10%, #0A102B9C 100%) }
+.panel { width: min(550px, calc(100vw - 36px)); max-width: none; padding: 42px 34px; border-radius: 24px; border-color: #F2C14E75;
+  background: linear-gradient(150deg, #222C54F5, #0E1430F5 72%); box-shadow: 0 24px 96px #0407118C, inset 0 0 0 5px #F2C14E10 }
+.panel h2 { color: #FFE9B0; font-size: clamp(2rem, 7vw, 3.35rem); letter-spacing: -.035em; line-height: 1.02 }
+.panel p { color: #E1E4F0; max-width: 32ch; margin: 16px auto 22px; line-height: 1.55 }
+.panel p:empty { display: none }
+button { border: 1px solid #FFE9B080; border-radius: 9px; background: linear-gradient(180deg, #FFE9B0, #F2C14E); padding: 11px 17px }
+button:not(#start) { background: #F5F1E613; color: var(--paper); border-color: #B6C6DB48 }
+button:hover { filter: brightness(1.13) }
+@media (max-width: 950px) { .cooldowns { bottom: 106px } #hint { bottom: 156px } }
+@media (max-width: 450px) { .health, .score { font-size: .73rem; padding: 8px; top: 22px } .health { left: 8px } .score { right: 8px } header { left: 8px } .panel { padding: 30px 20px } }

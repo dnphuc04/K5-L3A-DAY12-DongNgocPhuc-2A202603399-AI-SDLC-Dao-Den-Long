@@ -1,33 +1,33 @@
 # Day 12 — AI SDLC: Đảo Đèn Lồng
 
-## Chơi Đêm 1 · Đảo Bến
+## Chơi ba đêm
 
-Cần Node.js 20 trở lên. Chạy `npm start`, rồi mở [localhost:8080](http://localhost:8080) bằng trình duyệt. Dùng `npm.cmd start` nếu PowerShell chặn script npm.
+Cần Node.js 20 trở lên. Chạy `npm start` và mở [localhost:8080](http://localhost:8080) trên trình duyệt. Nếu PowerShell chặn script npm, dùng `npm.cmd start`.
 
 | Phím | Điều khiển |
 | --- | --- |
-| W A S D hoặc ↑ ↓ | Di chuyển theo hướng camera |
-| ← → | Xoay camera |
+| W A S D hoặc ↑ ↓ | Di chuyển theo camera |
+| ← → hoặc giữ chuột trái rồi kéo | Xoay camera |
 | Space | Nhảy |
+| Shift | Lướt |
 | E | Nạp đom đóm vào đèn gần nhất |
-| Q | Tỏa sáng, tốn 2 đom đóm |
+| Q | Tỏa Sáng, tốn 3 đom đóm |
+| Esc hoặc P | Tạm dừng hoặc tiếp tục |
 
-Mây mang tối đa 8 đom đóm. Mỗi đèn cần 4, đèn đã sáng bảo vệ Mây trong bán kính 3 m. Thắp đủ 5 đèn để thắng trước khi hết lửa hoặc hết 3 phút. Sau khi trận kết thúc, bấm **Chơi lại** để bắt đầu lại.
+Thắp 5 đèn ở Đảo Bến, 6 đèn ở Đảo Cau và 7 đèn ở Đảo Chuông. Bùa Gió tăng tốc chạy và bỏ hồi chiêu lướt trong 10 giây. Nhặt tối đa 10 đom đóm và nạp đủ 10 vào mỗi đèn. Mỗi đom đóm **nạp** được 10 điểm, mỗi đèn sáng được 100 điểm và mỗi Bóng Mực trúng Tỏa Sáng được 5 điểm. Khi thắng một Đêm, cộng 2 điểm mỗi giây nguyên còn lại và 50 điểm mỗi Ngọn Lửa còn lại. Tổng điểm Bình Minh chỉ cộng các Đêm đã thắng.
 
-Điểm được cộng theo số đom đóm nhặt được (10), đèn thắp (100) và Bóng Mực làm choáng (20). Khi thắng, cộng thêm 2 điểm mỗi giây nguyên còn lại và 50 điểm mỗi lửa còn lại.
-
-## Kiểm tra Phase 1
+## Kiểm tra Phase 2
 
 ```sh
 npm test
-node headless.mjs --seed 20 --night 1 --ticks 120 --snapshot-every 60 --out run.local.jsonl
+node headless.mjs --seed 20 --night 3 --ticks 21600 --out run.local.jsonl
 ```
 
-[Contract v1.0](game.contract.json) khai báo số liệu dùng chung cho game và CLI. Rìa đảo chặn di chuyển nên không có phạt rơi. Xem [giả định, bằng chứng và nhật ký AI](docs/phase-1/README.md).
+[Contract v1.1](game.contract.json) khai báo thông số và bản đồ dùng chung cho game và CLI. Xem [giả định, kết quả test và số đo](docs/phase-2/README.md). [Bằng chứng Phase 1](docs/phase-1/README.md) ứng với tag `phase-1`.
 
 ### Sáng tạo của tôi
 
-Mô hình low-poly được tạo bằng hình học trong mã. Đèn đã thắp nhuộm màu mặt đất quanh đèn và vẽ vòng vùng an toàn. Các hiệu ứng này chỉ nằm ở phần hiển thị. Bộ test headless kiểm tra độc lập logic chiếu sáng và vùng an toàn.
+Cảnh đêm và địa hình low-poly được vẽ bằng hình học trong mã. Trăng, sương nhiều lớp và vách đá làm rõ độ sâu. Đom đóm, đèn của Mây và đèn đã thắp có quầng sáng riêng, kèm vòng vùng an toàn quanh đèn lớn. Phần hiển thị, lá bay và âm thanh dùng trạng thái mô phỏng chung. Các test headless kiểm tra riêng logic vùng an toàn, gió và tính tất định.
 
 > **Cá nhân** (1 người / 1 MSSV) · Áp dụng SDLC cùng AI để xây một **game 3D** qua **4 phase**, từ yêu cầu ban đầu tới bản phát hành.
 > **Lab board + trợ giảng:** **[Đảo Đèn Lồng Lab](https://claude.ai/artifact/Q1RYyv1dxjUczzCbd2ZnoW)**

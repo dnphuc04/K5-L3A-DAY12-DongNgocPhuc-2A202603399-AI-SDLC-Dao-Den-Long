@@ -1,0 +1,32 @@
+{
+  "args": [
+    "node",
+    "headless.mjs",
+    "--seed",
+    "20",
+    "--night",
+    "3",
+    "--scenario",
+    "docs/phase-2/full-night.json",
+    "--ticks",
+    "21600",
+    "--snapshot-every",
+    "1800",
+    "--out",
+    "docs/phase-2/night3.jsonl"
+  ],
+  "elapsed_s": 0.1772941,
+  "end": {
+    "type": "end",
+    "ticks": 21600,
+    "state": "lost",
+    "score": 0
+  },
+  "node": "v24.18.0",
+  "os": "win32",
+  "os_release": "10.0.26200",
+  "arch": "x64",
+  "cpu": "AMD Ryzen 7 H 255 w/ Radeon 780M Graphics      ",
+  "ram_gib": 31,
+  "shade_spawn_events": 10
+}

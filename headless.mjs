@@ -17,22 +17,33 @@ function framesValid(input) {
   return isObject(input) && list((frame) => isObject(frame) && count(frame.tick) &&
     optional(frame, 'move', v => vector(v, 2, n => finite(n) && Math.abs(n) <= 1)) &&
     optional(frame, 'cam_yaw_deg', finite) &&
-    ['jump', 'interact', 'pulse', 'dash'].every(key => optional(frame, key, bool)))(input.frames) &&
+    ['jump', 'interact', 'pulse', 'dash', 'pause'].every(key => optional(frame, key, bool)))(input.frames) &&
     input.frames.every((frame, index, all) => index === 0 || frame.tick > all[index - 1].tick)
 }
 
-function scenarioValid(s, t) {
+function scenarioValid(s, t, map) {
   return isObject(s) &&
     optional(s, 'player', p => isObject(p) && optional(p, 'pos', pos) &&
       optional(p, 'carried', n => count(n) && n <= t.carry_capacity) &&
-      optional(p, 'flames', count)) &&
+      optional(p, 'flames', count) && optional(p, 'vel', pos) &&
+      ['invuln_ticks', 'dash_cd_ticks', 'pulse_cd_ticks', 'charm_ticks'].every(key => optional(p, key, count))) &&
     optional(s, 'time_left_s', n => finite(n) && n >= 0) &&
     optional(s, 'random_motes', bool) && optional(s, 'random_shades', bool) &&
-    optional(s, 'motes', list(pos)) &&
-    optional(s, 'shades', items => list(x => isObject(x) && pos(x.pos) && optional(x, 'id', id))(items) &&
+    optional(s, 'motes', list(item => pos(item) || isObject(item) && pos(item.pos) &&
+      optional(item, 'id', id) && optional(item, 'kind', v => ['random', 'dropped'].includes(v)) &&
+      optional(item, 'ttl_ticks', count))) &&
+    optional(s, 'random_drifters', bool) && optional(s, 'wind_enabled', bool) &&
+    optional(s, 'drifters', list(item => isObject(item) && pos(item.pos) && optional(item, 'id', id) &&
+      optional(item, 'state', v => ['idle', 'chase', 'flee', 'removed'].includes(v)) &&
+      optional(item, 'stolen', count) && optional(item, 'state_ticks_left', count))) &&
+    optional(s, 'charms', list(item => isObject(item) && optional(item, 'pos', pos) &&
+      optional(item, 'id', id) && optional(item, 'available', bool) && optional(item, 'respawn_ticks', count))) &&
+    optional(s, 'shades', items => list(x => isObject(x) && pos(x.pos) && optional(x, 'id', id) &&
+      optional(x, 'state', v => ['spawning', 'wander', 'chase', 'recoil', 'stunned'].includes(v)) &&
+      optional(x, 'state_ticks_left', count))(items) &&
       unique(items, (x, i) => x.id ?? 'S' + (i + 1))) &&
     optional(s, 'lanterns', items => list(x => isObject(x) &&
-      Array.from({ length: t.lantern_count_night1 }, (_, i) => 'L' + (i + 1)).includes(x.id) &&
+      Array.from({ length: map.lanterns.length }, (_, i) => 'L' + (i + 1)).includes(x.id) &&
       optional(x, 'pos', pos) && optional(x, 'lit', bool) &&
       optional(x, 'deposited', n => count(n) && n <= t.lantern_cost))(items) && unique(items, x => x.id))
 }
@@ -48,26 +59,27 @@ try {
   const integer = value => /^-?\d+$/.test(value ?? '') ? Number(value) : NaN
   const seed = integer(args.seed)
   const ticks = integer(args.ticks)
+  const night = integer(args.night)
   const every = integer(args['snapshot-every'] ?? '60')
   if (!Number.isSafeInteger(seed) || !count(ticks) || !count(every) || every === 0 ||
-      integer(args.night) !== 1 || !args.out) {
-    throw new Error('Usage: node headless.mjs --seed INT --night 1 --ticks INT --out FILE [--scenario FILE] [--inputs FILE] [--snapshot-every INT]')
+      ![1, 2, 3].includes(night) || !args.out) {
+    throw new Error('Usage: node headless.mjs --seed INT --night 1|2|3 --ticks INT --out FILE [--scenario FILE] [--inputs FILE] [--snapshot-every INT]')
   }
-  const { tuning } = readJSON(new URL('./game.contract.json', import.meta.url))
+  const contract = readJSON(new URL('./game.contract.json', import.meta.url))
   const scenario = args.scenario === undefined ? {} : readJSON(args.scenario)
   const inputs = args.inputs === undefined ? { frames: [] } : readJSON(args.inputs)
-  if (!scenarioValid(scenario, tuning)) throw new Error('Invalid scenario')
+  if (!scenarioValid(scenario, contract.tuning, contract.maps[night - 1])) throw new Error('Invalid scenario')
   if (!framesValid(inputs)) throw new Error('Invalid inputs')
-  const game = createGame(tuning, seed, scenario)
+  const game = createGame(contract, seed, scenario, night)
   const lines = [JSON.stringify(snapshot(game))]
   let input = neutral
   let index = 0
-  while (game.tick < ticks && game.state === 'playing') {
+  while (game.tick < ticks && ['playing', 'paused'].includes(game.state)) {
     if (inputs.frames[index]?.tick === game.tick) {
       const { tick, ...frame } = inputs.frames[index++]
       input = { ...input, ...frame }
     }
-    for (const event of step(game, tuning, input)) lines.push(JSON.stringify(event))
+    for (const event of step(game, input)) lines.push(JSON.stringify(event))
     if (game.tick % every === 0) lines.push(JSON.stringify(snapshot(game)))
   }
   lines.push(JSON.stringify({ type: 'end', ticks: game.tick, state: game.state, score: game.score }))

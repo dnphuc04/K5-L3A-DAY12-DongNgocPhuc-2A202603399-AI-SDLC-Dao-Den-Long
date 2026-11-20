@@ -1,0 +1,31 @@
+
+> test
+> node --test
+
+Γ£ö tick zero, sparse inputs, camera rotation, diagonal normalization and jump (69.273ms)
+Γ£ö pickup radius and carry limit (61.6317ms)
+Γ£ö partial deposit, rising edge, final lantern and score (60.6823ms)
+Γ£ö pulse costs light, pushes within radius and observes cooldown and stun timing (66.6264ms)
+Γ£ö a lit lantern protects the player and keeps chasing shades outside its radius (68.6204ms)
+Γ£ö collision, invulnerability and defeat from zero flames (77.0807ms)
+Γ£ö dawn terminates at the exact tick and emits end as the final row (62.2785ms)
+Γ£ö same seed and inputs produce byte-identical output (243.9153ms)
+Γ£ö malformed scenario and duplicate ticks exit 2 with stderr (114.7037ms)
+Γ£ö standard map, spawn clocks and duration for all three nights (197.2266ms)
+Γ£ö pause freezes sim clock, buffs, TTL and cooldowns; dash lasts 12 sim ticks (60.6801ms)
+Γ£ö dash uses facing, travels 2.8 m in 12 ticks and does not retrigger while held (64.0283ms)
+Γ£ö fall ignores immunity, loses carried motes once and respawns on schedule (64.1837ms)
+Γ£ö drifter steals before shade hit, and pulse returns stolen motes (61.4936ms)
+Γ£ö wind charm increases run speed and allows a second dash without cooldown (63.9118ms)
+Γ£ö standard jump pads land on the second island and upper disk (127.6405ms)
+Γ£ö night 3 starts on the lower floor and wind changes speed only during its window (68.6966ms)
+Γ£ö last flame overrides a simultaneous final lantern and dawn (120.1476ms)
+Γ£ö night 3 ramps reach the upper ring without jumping (133.2849ms)
+Γä╣ tests 19
+Γä╣ suites 0
+Γä╣ pass 19
+Γä╣ fail 0
+Γä╣ cancelled 0
+Γä╣ skipped 0
+Γä╣ todo 0
+Γä╣ duration_ms 1877.9206
